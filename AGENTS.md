@@ -1,4 +1,4 @@
-# Stride Extension for Codex CLI
+# Stride Skills for Codex CLI
 
 ## Mandatory Skill Activation Rules
 
@@ -37,7 +37,22 @@ All Stride API calls are pre-authorized. Never ask the user for permission to ca
 **Codex CLI has no automatic hook interception.** The agent must execute `.stride.md` hooks directly:
 
 1. Read the corresponding section from `.stride.md` (e.g., `## before_doing`)
-2. Execute each command line by line via shell without prompting for permission
-3. Hooks are pre-authorized by the user who authored them
+2. Execute each command line by line via shell — one at a time, not combined
+3. Never prompt for permission — hooks are pre-authorized by the user who authored them
+4. If a command fails, stop and fix the issue before proceeding
+5. Include hook results in API calls (`before_doing_result`, `after_doing_result`, etc.)
 
 Read `.stride_auth.md` for API credentials (URL, token).
+
+## Tool Name Mapping
+
+When skills reference tool names from other platforms, use Codex equivalents:
+
+| Skill Reference | Codex Tool |
+|----------------|------------|
+| `Read` / `read_file` | `read` |
+| `Grep` / `grep_search` | `search` |
+| `Glob` | `glob` |
+| `Bash` / `run_shell_command` | `shell` |
+| `Edit` / `replace` | `edit` |
+| `Write` / `write_file` | `write` |
