@@ -6,19 +6,28 @@ This is the Codex CLI version of the Stride plugin. It provides workflow enforce
 
 ## Installation
 
-Copy the skills, agents, and AGENTS.md into your project:
+### One-liner (recommended)
+
+Install globally so skills and agents are available in all projects:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheezy/stride-codex/main/install.sh | bash
+```
+
+Or install into the current project only:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheezy/stride-codex/main/install.sh | bash -s -- --project
+```
+
+### Manual installation
 
 ```bash
 git clone https://github.com/cheezy/stride-codex.git
 
-# Copy skills
+# Copy skills and agents
 cp -r stride-codex/skills/ .agents/skills/
-# Or: cp -r stride-codex/skills/ .codex/skills/
-
-# Copy agents
 cp -r stride-codex/agents/ .agents/agents/
-
-# Copy AGENTS.md
 cp stride-codex/AGENTS.md AGENTS.md
 ```
 
