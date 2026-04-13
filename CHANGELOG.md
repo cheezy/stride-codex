@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-04-13
+
+### Added
+
+- **`stride-workflow` skill** — Single orchestrator for the complete Stride task lifecycle adapted for Codex CLI. Walks through prerequisites, claiming, codebase exploration (via custom agents with graceful fallback), implementation, code review, manual hook execution, and completion in a single skill. Uses process-over-speed messaging. Eliminates the need to remember which skills to activate at which moments.
+
+### Changed
+
+- **`stride-claiming-tasks` skill** — Reframed automation notice from throughput-emphasizing ("FULLY AUTOMATED") to process-over-speed ("The workflow IS the automation"). Added "Recommended: Use the Workflow Orchestrator" section pointing to `stride-workflow`. Renamed "MANDATORY: Next Skill After Claiming" to "Next Skill After Claiming (Standalone Mode)".
+- **`stride-completing-tasks` skill** — Reframed automation notice from throughput-emphasizing to process-over-speed. Added "Arriving from stride-workflow" section. Renamed "MANDATORY: Previous Skill Before Completing" to "Previous Skill Before Completing (Standalone Mode)". Added `stride-workflow` as first entry in the prerequisite skills list.
+- **`AGENTS.md`** — Updated Workflow Sequence to recommend `stride-workflow` as preferred entry point, with standalone skill chain as alternative.
+- **`README.md`** — Added `stride-workflow` to Workflow Order (as recommended) and Skills table. Existing standalone workflow preserved as alternative.
+
 ## [1.0.0] - 2026-03-26
 
 ### Added
