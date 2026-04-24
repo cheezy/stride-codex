@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.0] - 2026-04-24
+
+### Added
+
+- **`install.ps1`** — Windows PowerShell installer mirroring the behavior of `install.sh`. Defaults to global install at `$env:USERPROFILE\.agents\`; `-Project` switch installs into `.\.agents\` in the current directory; `-Help` prints usage and exits. Uses `$ErrorActionPreference = 'Stop'`, cleans up its temp clone directory in a `finally` block, checks for `git` on `PATH` with a friendly error if missing, and preserves the per-skill `skills/<name>/SKILL.md` layout the Codex CLI expects. Can be invoked via `irm https://raw.githubusercontent.com/cheezy/stride-codex/main/install.ps1 | iex` or the scriptblock wrapper `& ([scriptblock]::Create((irm ...))) -Project` for project-local installs.
+- **`README.md`** — New "Windows (PowerShell)" section under Installation documenting the global one-liner, the project-scoped scriptblock-wrapper one-liner, and a download-then-run variant. Added a Windows manual-install block using `Copy-Item` alongside the existing bash `cp -r` version. Notes PowerShell 5.1+ / PowerShell Core 7+ and Git for Windows as prerequisites.
+
 ## [1.4.0] - 2026-04-16
 
 ### Added
