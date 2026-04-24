@@ -20,6 +20,31 @@ Or install into the current project only:
 curl -fsSL https://raw.githubusercontent.com/cheezy/stride-codex/main/install.sh | bash -s -- --project
 ```
 
+### Windows (PowerShell)
+
+Requires PowerShell 5.1+ or PowerShell Core 7+ and Git for Windows on `PATH`.
+
+Install globally so skills and agents are available in all projects:
+
+```powershell
+irm https://raw.githubusercontent.com/cheezy/stride-codex/main/install.ps1 | iex
+```
+
+Or install into the current project only (the scriptblock wrapper is required to pass `-Project` through `irm | iex`):
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/cheezy/stride-codex/main/install.ps1))) -Project
+```
+
+Download and run manually if you prefer:
+
+```powershell
+irm https://raw.githubusercontent.com/cheezy/stride-codex/main/install.ps1 -OutFile install.ps1
+.\install.ps1            # global install
+.\install.ps1 -Project   # project-local install
+.\install.ps1 -Help      # print usage and exit
+```
+
 ### Manual installation
 
 ```bash
@@ -29,6 +54,17 @@ git clone https://github.com/cheezy/stride-codex.git
 cp -r stride-codex/skills/ .agents/skills/
 cp -r stride-codex/agents/ .agents/agents/
 cp stride-codex/AGENTS.md AGENTS.md
+```
+
+For Windows manual installation, use `Copy-Item`:
+
+```powershell
+git clone https://github.com/cheezy/stride-codex.git
+
+# Copy skills and agents
+Copy-Item -Recurse stride-codex\skills\* .agents\skills\
+Copy-Item -Recurse stride-codex\agents\*.md .agents\agents\
+Copy-Item stride-codex\AGENTS.md .\AGENTS.md
 ```
 
 Codex CLI discovers skills in `.agents/skills/` or `.codex/skills/` and agents in `.agents/agents/` automatically.
