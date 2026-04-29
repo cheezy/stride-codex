@@ -4,6 +4,67 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] - 2026-04-29
+
+### Platform constraint — read this first
+
+The Codex CLI does not expose a hook system: there are no `BeforeTool` /
+`AfterTool` lifecycle events, no skill-activation event, and no documented
+mechanism for an extension to intercept and deny a tool call before it runs.
+This means the **Layer-1 mechanical gate** that ships with stride 1.10.0 for
+Claude Code (a `PreToolUse(Skill)` hook that blocks direct activation of
+internal Stride sub-skills) is **not implementable on Codex today**.
+
+This release ships the two prose-only enforcement layers from stride 1.10.0
+(Layer 2 — description reframing; Layer 3 — `## STOP — orchestrator check`
+preamble). Both layers are runtime-independent and rely on the Codex skill
+matcher and the agent's attention to the in-body STOP block; together they
+steer user prompts toward `stride-workflow` and instruct an agent that lands
+in a sub-skill to back out and invoke the orchestrator instead. They are
+guidance, not enforcement.
+
+Users who expect a hard runtime gate should know it is a **platform
+limitation**, not a missing implementation. If Codex CLI later adds hook
+events with a documented skill-activation interception point, the gate
+scripts from stride 1.10.0 can be ported with the same three-adapter pattern
+used for stride-gemini 1.6.0 (see that plugin's `docs/HOOK_RESEARCH.md` for a
+worked example). Until then, layers 2 and 3 are the available enforcement.
+
+### Changed
+
+- **All 6 sub-skill `description:` fields** (`stride-claiming-tasks`,
+  `stride-completing-tasks`, `stride-creating-tasks`, `stride-creating-goals`,
+  `stride-enriching-tasks`, `stride-subagent-workflow`) — Reframed as
+  `INTERNAL — invoked only by stride:stride-workflow. Do NOT invoke from a
+  user prompt.` Removed user-intent verbs (`claim a task`, `complete a task`,
+  etc.) so Codex's auto-activation matcher no longer routes user prompts to
+  the sub-skills. Wording is byte-identical to stride 1.10.0 for cross-plugin
+  consistency. Frontmatter shape preserved — no `skills_version` field added
+  (the stride-codex convention is `name` + `description` only).
+- **`stride-workflow` `description:`** — Amplified to enumerate the explicit
+  user-intent phrases that should match the orchestrator: "claim a task",
+  "work on the next stride task", "complete a stride task", "enrich a stride
+  task", "decompose a goal", "create a goal or stride tasks". The phrase list
+  is load-bearing for Codex's matcher and should not be diluted.
+- **`.codex-plugin/plugin.json`** — Version bumped from 1.4.0 to 1.6.0 (the
+  manifest was inadvertently not bumped during the 1.5.0 release; this
+  release re-aligns it with the CHANGELOG header).
+
+### Added
+
+- **`## STOP — orchestrator check` preamble** — Inserted as the first H2 of
+  every sub-skill body (6 files). The 5-line block tells an agent that
+  arrived at a sub-skill directly to back out and invoke
+  `stride:stride-workflow` instead. Wording is byte-identical to stride
+  1.10.0; the block is plain text with no emojis so it matches stride-codex's
+  emoji-free header style.
+
+### Source
+
+Motivated by the three-layer defense designed in
+`docs/plans/stride-plugin-feedback.md` (kanban repo) and ported from stride
+1.10.0 (commit 5c30036).
+
 ## [1.5.0] - 2026-04-24
 
 ### Added
