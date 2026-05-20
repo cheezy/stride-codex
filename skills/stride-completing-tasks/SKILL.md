@@ -106,6 +106,7 @@ Use when you've finished implementing a Stride task and are ready to mark it com
 - [ ] **Are you ready to run the `after_doing` hook (tests, linting)?** If no → fix any known issues first. The hook will fail if tests don't pass.
 - [ ] **Is `workflow_steps` included in the complete payload?** If no → add it now. The array is required on every completion. It must contain one entry for each of the six step names (`explorer`, `planner`, `implementation`, `reviewer`, `after_doing`, `before_review`) — see the stride-workflow skill for the schema.
 - [ ] **Are `explorer_result` and `reviewer_result` included?** If no → add them now. Both are required on every completion, either as a dispatched-custom-agent result or as a self-reported skip with a reason from the fixed enum. See the Explorer/Reviewer Result Schema section below.
+- [ ] **Did you embed `.stride-changed-files.json` into the payload as `changed_files`?** Read it INLINE inside the same shell invocation as the completion curl via `--argjson cf "$(cat "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo '[]')"`. Use the absolute `$CLAUDE_PROJECT_DIR` path (not a relative `.stride-changed-files.json`) — a non-root agent CWD silently misses the file otherwise. In Codex CLI the snapshot is produced manually by the same `after_doing` hook commands the agent just ran; reading it in an earlier shell turn would pick up a stale snapshot from a prior task. See the Per-File Diff Capture (Manual) section below for the capture pattern.
 
 **If ANY answer is NO → Go back and do it now. Do NOT proceed to completion.**
 
@@ -268,15 +269,67 @@ When a blocking hook fails, invoke the `hook-diagnostician` custom agent **as th
 
 ## API Request Format
 
-After BOTH hooks succeed, call the complete endpoint:
+After BOTH hooks succeed, assemble and send the completion request as a
+SINGLE shell invocation that inlines the snapshot read inside `jq -n`. The
+inline pattern matters because Codex CLI has no automatic hook
+interception — you (the agent) just executed `.stride.md`'s `after_doing`
+commands manually, and that's when `.stride-changed-files.json` should
+have been (re)written. A separate shell turn before the completion curl
+would read a stale snapshot from a prior task. See the "Why inline?"
+paragraph in the [Per-File Diff Capture (Manual)](#per-file-diff-capture-manual)
+section below.
+
+```bash
+curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
+  -H "Authorization: Bearer $STRIDE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -n \
+    --argjson cf "$(cat "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
+    --arg agent_name 'Codex CLI' \
+    --arg notes 'All tests passing. PR #123 created.' \
+    --arg summary 'Brief one-line summary for tracking.' \
+    --arg complexity 'small' \
+    --arg files 'lib/foo.ex, test/foo_test.exs' \
+    --arg report '## Review Summary\n\nApproved — 0 issues found.' \
+    '{
+       agent_name: $agent_name,
+       time_spent_minutes: 45,
+       completion_notes: $notes,
+       completion_summary: $summary,
+       actual_complexity: $complexity,
+       actual_files_changed: $files,
+       changed_files: $cf,
+       review_report: $report,
+       after_doing_result: {exit_code: 0, output: "...", duration_ms: 45678},
+       before_review_result: {exit_code: 0, output: "...", duration_ms: 2340},
+       explorer_result: {dispatched: false, reason: "self_reported_exploration", summary: "..."},
+       reviewer_result: {dispatched: false, reason: "self_reported_review", summary: "..."},
+       workflow_steps: [
+         {name: "explorer", dispatched: true, duration_ms: 12450},
+         {name: "planner", dispatched: true, duration_ms: 8200},
+         {name: "implementation", dispatched: true, duration_ms: 1820000},
+         {name: "reviewer", dispatched: true, duration_ms: 15300},
+         {name: "after_doing", dispatched: true, duration_ms: 45678},
+         {name: "before_review", dispatched: true, duration_ms: 2340}
+       ]
+     }')"
+```
+
+The resulting request body has this shape (illustrative — populated values
+match the `--arg` / `--argjson` substitutions above):
 
 ```json
-PATCH /api/tasks/:id/complete
 {
   "agent_name": "Codex CLI",
   "time_spent_minutes": 45,
   "completion_notes": "All tests passing. PR #123 created.",
-  "review_report": "## Review Summary\n\nApproved — 0 issues found.\n\n### Acceptance Criteria\n| # | Criterion | Status |\n|---|-----------|--------|\n| 1 | Feature works | Met |",
+  "completion_summary": "Brief one-line summary for tracking.",
+  "actual_complexity": "small",
+  "actual_files_changed": "lib/foo.ex, test/foo_test.exs",
+  "changed_files": [
+    {"path": "lib/foo.ex", "diff": "--- a/lib/foo.ex\n+++ b/lib/foo.ex\n@@ -1,3 +1,4 @@\n defmodule Foo do\n+  @moduledoc \"Foo\"\n end\n"}
+  ],
+  "review_report": "## Review Summary\n\nApproved — 0 issues found.",
   "after_doing_result": {
     "exit_code": 0,
     "output": "Running tests...\n230 tests, 0 failures\nmix credo --strict\nNo issues found",
@@ -309,6 +362,123 @@ PATCH /api/tasks/:id/complete
 ```
 
 **Critical:** `after_doing_result`, `before_review_result`, `explorer_result`, `reviewer_result`, and `workflow_steps` are all REQUIRED. The API will reject requests without them.
+
+**Optional:** Include `changed_files` whenever `.stride-changed-files.json` exists in the project root — read it INLINE inside the same shell invocation as the completion curl (see the bash example above and the [Per-File Diff Capture (Manual)](#per-file-diff-capture-manual) section below). The `|| echo '[]'` fallback produces an empty array when the snapshot is absent or unreadable; emitting `changed_files: []` is a valid completion. The encoding rules (500-line truncation marker, binary placeholder, `{path, diff}` shape) live in `docs/diff-contract.md` and should not be duplicated into the example.
+
+## Per-File Diff Capture (Manual)
+
+The completion payload accepts an optional top-level `changed_files` array — one
+`{path, diff}` entry per file changed during the task. When provided, the
+Stride review queue renders each diff inline next to the task, giving the
+human reviewer a per-file view of what the agent did without leaving the
+kanban UI. When omitted, the review queue falls back to the file list in
+`actual_files_changed` (no inline diff panel). The encoding rules live in
+the contract doc and are the single source of truth:
+
+> **Contract:** [`docs/diff-contract.md`](https://raw.githubusercontent.com/cheezy/kanban/refs/heads/main/docs/diff-contract.md)
+> (defines `path` / `diff` keys, exact truncation marker string, exact binary
+> placeholder string, the 500-line inclusive cap, and the optional-field rules)
+
+**Why this is manual in Codex.** Codex CLI does not support automatic hook
+interception. The other Stride plugins (stride, stride-copilot, stride-gemini,
+stride-pi, stride-opencode) ship a `hooks/stride-hook.sh` that the host CLI
+fires as a PreToolUse / BeforeTool handler on the completion curl — the
+handler writes `.stride-changed-files.json` automatically during the curl
+call. Codex CLI has no equivalent surface, so the agent is responsible for
+producing the snapshot itself. The wire shape and the inline-cat-in-jq read
+pattern are identical to the other plugins — only the writer changes.
+
+**How to produce `.stride-changed-files.json` in Codex.** The simplest path
+is to add a snapshot-writer line to your `.stride.md` `## after_doing`
+section so it runs alongside your tests / lint / build commands and produces
+the snapshot before you assemble the completion curl. The canonical
+capture function lives in
+[`stride/hooks/stride-hook.sh`](https://github.com/cheezy/stride/blob/main/hooks/stride-hook.sh) —
+source it from your shell, then call `capture_changed_files "$TASK_BASE_REF"`
+and redirect to `$CLAUDE_PROJECT_DIR/.stride-changed-files.json`. The
+function handles working-tree-relative semantic, untracked-new-file
+synthesis, binary detection, and 500-line truncation per the contract.
+
+A minimal Codex-friendly `## after_doing` looks like:
+
+```bash
+## after_doing
+mix test
+mix credo --strict
+# Capture changed_files for the upcoming /complete payload.
+# Requires TASK_BASE_REF to be exported (set during claim).
+# CAPTURE_SCRIPT path is illustrative — vendor the canonical bash function
+# body from stride/hooks/stride-hook.sh (the block between the
+# `# --- Per-file diff capture` banner and the next `# ---` banner) into
+# your own script at any location you choose, then point CAPTURE_SCRIPT
+# at it.
+bash -c 'source "${CAPTURE_SCRIPT:-$HOME/.stride-scripts/capture-changed-files.sh}" && \
+  capture_changed_files "${TASK_BASE_REF:-HEAD~1}" \
+  > "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || true'
+```
+
+stride-codex does NOT ship a capture script of its own — Codex CLI has no
+plugin-side hook surface to host one, and the function body in
+[`stride/hooks/stride-hook.sh`](https://github.com/cheezy/stride/blob/main/hooks/stride-hook.sh)
+(between the `# --- Per-file diff capture` banner and the next `# ---`
+banner) is the entire portable implementation. Vendor it once into a
+location of your choosing and reference it via `$CAPTURE_SCRIPT`.
+
+**Working-tree semantic.** The canonical `capture_changed_files` reflects
+the agent's full working state at completion time, regardless of commit
+state. An agent that edits a file and runs `after_doing` WITHOUT committing
+first still produces a populated snapshot — the diff is captured from the
+working tree against `$TASK_BASE_REF`, not from `..HEAD`. This matters in
+Codex because Codex agents often complete short tasks without an
+intermediate commit.
+
+**Why inline?** When you assemble the completion curl, read the snapshot
+INSIDE the same shell invocation via `jq -n --argjson cf "$(cat
+"$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo
+'[]')"`. The snapshot was written during the `after_doing` block you
+JUST ran — reading it in an earlier shell turn (before you ran
+`after_doing`) would pick up a stale snapshot from a prior task. Using
+the absolute `$CLAUDE_PROJECT_DIR` path guards against the agent's CWD
+being something other than the project root.
+
+```bash
+curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
+  -H "Authorization: Bearer $STRIDE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -n \
+    --argjson cf "$(cat "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
+    --arg summary 'completion summary text' \
+    --arg notes 'completion notes text' \
+    '{
+       completion_summary: $summary,
+       completion_notes: $notes,
+       changed_files: $cf,
+       actual_complexity: "small"
+     }')"
+```
+
+If `.stride-changed-files.json` is absent — capture script not vendored,
+non-git project, jq or git missing — the inlined `|| echo '[]'` fallback
+produces an empty array. Empty `changed_files` is a valid shape; the
+server accepts it. Do NOT synthesize diffs by hand to "fill in" the
+field; emit only what the capture function captured (or `[]`). Both
+shapes below are valid completions:
+
+```json
+"changed_files": [
+  {"path": "lib/foo.ex", "diff": "--- a/lib/foo.ex\n+++ b/lib/foo.ex\n@@ -1,3 +1,4 @@\n defmodule Foo do\n+  @moduledoc \"Foo\"\n end\n"},
+  {"path": "assets/logo.png", "diff": "[binary file — no diff captured]"}
+]
+```
+
+```json
+"changed_files": []
+```
+
+**Backward compatibility.** `changed_files` is strictly optional. Completion
+payloads that omit it remain fully valid forever — the server treats the
+absence as "no diff data available" and the review queue shows the file list
+from `actual_files_changed` without an inline diff panel.
 
 ## Explorer/Reviewer Result Schema
 

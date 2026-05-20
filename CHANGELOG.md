@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] - 2026-05-20
+
+### Added
+
+- **`skills/stride-completing-tasks/SKILL.md`** — New `## Per-File Diff Capture (Manual)` section that documents the optional top-level `changed_files` field on completion payloads, citing [`docs/diff-contract.md`](https://raw.githubusercontent.com/cheezy/kanban/refs/heads/main/docs/diff-contract.md) as the encoding source-of-truth (field shape, 500-line truncation marker, binary placeholder string). The section explains the Codex-specific architecture — Codex CLI has no automatic hook interception, so the snapshot is produced by the agent (typically as a line in the user's `.stride.md` `## after_doing` block) rather than by an auto-firing PreToolUse handler the way other Stride plugins do it. Includes a "Why inline?" paragraph explaining that a separate shell turn before the completion curl would read a stale snapshot from a prior task, and a "Working-tree semantic" paragraph documenting the canonical Option D capture (committed + staged + modified-uncommitted + untracked-new files in a single pass against `$TASK_BASE_REF`, not `..HEAD`).
+- **`skills/stride-completing-tasks/SKILL.md`** — New pre-completion verification checklist item explicitly testing for the inline-cat-in-jq pattern with the absolute `$CLAUDE_PROJECT_DIR/.stride-changed-files.json` path, including the rationale that reading the snapshot in an earlier shell turn picks up the prior task's snapshot.
+
+### Changed
+
+- **`skills/stride-completing-tasks/SKILL.md`** — Rewrote the `## API Request Format` section to lead with a `bash`/`curl` example that inlines the snapshot read via `--argjson cf "$(cat \"$CLAUDE_PROJECT_DIR/.stride-changed-files.json\" 2>/dev/null || echo '[]')"` INSIDE the `jq -n` invocation that builds the curl's `-d` payload. The JSON body shape is kept as an illustrative supplement below the bash example. A new `**Optional:**` paragraph after the `**Critical:**` line documents the snapshot-absent fallback (`changed_files: []` is a valid completion).
+
+### Why this release (and what's NOT in it)
+
+Mirrors stride 1.15.0 (G157/W758) into stride-codex as far as the platform allows. Other Stride plugins ship a `hooks/stride-hook.sh` that the host CLI fires as a PreToolUse / BeforeTool handler on the completion curl — the handler writes `.stride-changed-files.json` automatically. Codex CLI has no equivalent hook surface, so stride-codex's port is **SKILL.md-only**: the wire shape (`changed_files: [{path, diff}, …]`), the encoding contract, and the inline-cat-in-jq read pattern are byte-identical to the other plugins, but the *writer* is the agent (typically via a line added to the user's `.stride.md` `## after_doing` block) rather than an auto-firing handler. **No `hooks/` directory was added.** The canonical `capture_changed_files()` bash function lives in `stride/hooks/stride-hook.sh` and can be sourced or pasted by users who want byte-identical capture behavior.
+
+### Backward compatibility
+
+The wire shape of `changed_files` is unchanged. Completion payloads that omit `changed_files` entirely continue to validate (the empty-array form produced by the inline `|| echo '[]'` fallback is also valid). Codex tasks that ran before this release simply did not produce snapshots; their `actual_files_changed` lists still surface in `/review`.
+
+### Source
+
+Implemented as W735 (combined SKILL.md docs + CHANGELOG entry). No marketplace coordination — stride-codex ships by tag directly.
+
 ## [1.9.0] - 2026-05-19
 
 ### Changed
