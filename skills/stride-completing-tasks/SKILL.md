@@ -106,7 +106,7 @@ Use when you've finished implementing a Stride task and are ready to mark it com
 - [ ] **Are you ready to run the `after_doing` hook (tests, linting)?** If no → fix any known issues first. The hook will fail if tests don't pass.
 - [ ] **Is `workflow_steps` included in the complete payload?** If no → add it now. The array is required on every completion. It must contain one entry for each of the six step names (`explorer`, `planner`, `implementation`, `reviewer`, `after_doing`, `before_review`) — see the stride-workflow skill for the schema.
 - [ ] **Are `explorer_result` and `reviewer_result` included?** If no → add them now. Both are required on every completion, either as a dispatched-custom-agent result or as a self-reported skip with a reason from the fixed enum. See the Explorer/Reviewer Result Schema section below.
-- [ ] **Did you embed `.stride-changed-files.json` into the payload as `changed_files`?** Read it INLINE inside the same shell invocation as the completion curl via `--argjson cf "$(cat "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo '[]')"`. Use the absolute `$CLAUDE_PROJECT_DIR` path (not a relative `.stride-changed-files.json`) — a non-root agent CWD silently misses the file otherwise. In Codex CLI the snapshot is produced manually by the same `after_doing` hook commands the agent just ran; reading it in an earlier shell turn would pick up a stale snapshot from a prior task. See the Per-File Diff Capture (Manual) section below for the capture pattern.
+- [ ] **Did you embed `.stride-changed-files.json` into the payload as `changed_files`?** Read it INLINE inside the same shell invocation as the completion curl via `--argjson cf "$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo '[]')"`. Use the absolute `$CLAUDE_PROJECT_DIR` path (not a relative `.stride-changed-files.json`) — a non-root agent CWD silently misses the file otherwise. In Codex CLI the snapshot is produced manually by the same `after_doing` hook commands the agent just ran; reading it in an earlier shell turn would pick up a stale snapshot from a prior task. See the Per-File Diff Capture (Manual) section below for the capture pattern.
 
 **If ANY answer is NO → Go back and do it now. Do NOT proceed to completion.**
 
@@ -284,7 +284,7 @@ curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
   -H "Authorization: Bearer $STRIDE_API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(jq -n \
-    --argjson cf "$(cat "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
+    --argjson cf "$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
     --arg agent_name 'Codex CLI' \
     --arg notes 'All tests passing. PR #123 created.' \
     --arg summary 'Brief one-line summary for tracking.' \
@@ -414,7 +414,7 @@ mix credo --strict
 # at it.
 bash -c 'source "${CAPTURE_SCRIPT:-$HOME/.stride-scripts/capture-changed-files.sh}" && \
   capture_changed_files "${TASK_BASE_REF:-HEAD~1}" \
-  > "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || true'
+  > "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || true'
 ```
 
 stride-codex does NOT ship a capture script of its own — Codex CLI has no
@@ -434,7 +434,7 @@ intermediate commit.
 
 **Why inline?** When you assemble the completion curl, read the snapshot
 INSIDE the same shell invocation via `jq -n --argjson cf "$(cat
-"$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo
+"${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo
 '[]')"`. The snapshot was written during the `after_doing` block you
 JUST ran — reading it in an earlier shell turn (before you ran
 `after_doing`) would pick up a stale snapshot from a prior task. Using
@@ -446,7 +446,7 @@ curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
   -H "Authorization: Bearer $STRIDE_API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(jq -n \
-    --argjson cf "$(cat "$CLAUDE_PROJECT_DIR/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
+    --argjson cf "$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
     --arg summary 'completion summary text' \
     --arg notes 'completion notes text' \
     '{
