@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.1] - 2026-05-21
+
+### Fixed
+
+- **`skills/stride-completing-tasks/SKILL.md`** — Replaced five occurrences of `"$CLAUDE_PROJECT_DIR/.stride-changed-files.json"` with the defaulted form `"${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json"` in the canonical inline-cat pattern. The inline structure, the `--argjson cf "$(cat ... 2>/dev/null || echo '[]')"` shape, and the binary/truncation contract are unchanged — only the variable expansion is defaulted.
+- **`.codex-plugin/plugin.json`** — Version field corrected to `1.10.1`. The repository carried a pre-existing version-tag drift (the v1.10.0 release was tagged without bumping `plugin.json` from `1.9.0`); this hotfix re-syncs the manifest with the release tag in the same commit.
+
+### Why this release
+
+Under runtimes where `$CLAUDE_PROJECT_DIR` is unset/empty (notably Claude Code's TypeScript SDK when bridging from Codex CLI), the bare expansion produced `/.stride-changed-files.json`. The `cat` failed, the `|| echo '[]'` fallback fired, and agents POSTed `changed_files: []` even when the hook had correctly written the snapshot. The defaulted form `${CLAUDE_PROJECT_DIR:-.}` falls back to the current working directory when the variable is unset or empty.
+
+### Backward compatibility
+
+Wire shape unchanged. Behavior under a non-empty `$CLAUDE_PROJECT_DIR` is byte-identical to v1.10.0.
+
+### Source
+
+Mirrors the stride v1.15.1 fix (W767/W768) for the Codex variant. Implemented as W771 (SKILL.md hotfix) and W772 (release coordination). No marketplace pin update — stride-codex is not distributed through stride-marketplace; consumers install directly from this repository.
+
 ## [1.10.0] - 2026-05-20
 
 ### Added
