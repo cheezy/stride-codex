@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.11.0] - 2026-05-22
+
+### Added
+
+- **`## after_goal` hook documentation** — fifth `.stride.md` hook documented across two skills. stride-codex has no plugin hook script (unlike stride-claude / stride-copilot / stride-gemini / stride-opencode), so this release is **documentation-only**: it teaches Codex CLI agents how to handle the `after_goal` lifecycle manually when the Stride server bundles an `after_goal` entry in the response of `/complete` or `/mark_reviewed`.
+- **`skills/stride-workflow/SKILL.md`** (W801) — Step 7 (Execute Hooks) gains a Hooks Reference table listing all five hooks (timing/blocking/timeout/purpose) with an explicit note that codex has no hook script so the agent runs each hook manually via the platform's shell tool. New Hook Environment Variables matrix shows `GOAL_*` (`GOAL_ID`, `GOAL_IDENTIFIER`, `GOAL_TITLE`, `GOAL_DESCRIPTION`) alongside `TASK_*` / `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME`, with guidance to export from the response's `hook.env` block. New Canonical Hook Examples block with an explicit general-purpose disclaimer (Slack notifications, artifact archival, release pipelines, project-level smoke tests are all valid uses — not just PR creation). Step 9 (Post-Completion Decision) gains a new subsection with a five-step manual execution path: detect after_goal entry in response → read `## after_goal` from `.stride.md` → export GOAL_* from hook.env → execute commands via shell → POST captured `{exit_code, output, duration_ms}` to `PATCH /api/tasks/:goal_id/after_goal`.
+- **`skills/stride-completing-tasks/SKILL.md`** (W802) — New subsection in the "Review vs Auto-Approval Decision" block surfacing the after_goal entry in the `/complete` and `/mark_reviewed` response payload's `hooks` array. Documents the same five-step manual execution path with the curl shape for the agent's PATCH POST. Includes pitfall: non-zero exit must be surfaced, never silently retried.
+
+### Backward compatibility
+
+A `.stride.md` without a `## after_goal` section continues to work unchanged — the agent simply skips the manual execution path and the server's grace-window worker promotes the goal to Done automatically with a synthetic attempt tagged `source: "after_goal_grace_worker"`. Older agent runtimes that don't speak the after_goal protocol — including those that don't make the PATCH POST — are covered by the same grace-window worker.
+
+### Note on the v1.10.x tag gap
+
+Commits `8f7a986 Default CLAUDE_PROJECT_DIR to . in inline-cat pattern (W771)` and `01f85a5 Release 1.10.1` and `a965a4e Release 1.10.0` were committed but never tagged on origin. This v1.11.0 release captures all of that prepared work alongside the new after_goal documentation — installing v1.11.0 picks up everything.
+
+### Migration
+
+Install via your normal stride-codex install flow. No `.stride.md`, `.stride_auth.md`, or `.gitignore` changes are required. To opt into the new hook, add a `## after_goal` section to `.stride.md` AND follow the five-step manual execution path documented in stride-workflow Step 9 / stride-completing-tasks "Additional hook in the response" subsection.
+
+### Source
+
+G167 / W801 (stride-workflow SKILL.md), W802 (stride-completing-tasks SKILL.md), W803 (this release). Pattern mirrors the Claude plugin's v1.17.1 release — the after_goal feature shipped first on the Claude plugin and is being ported to the other Stride agent plugins. For stride-codex, the port is documentation-only because there's no hook script to update.
+
 ## [1.10.1] - 2026-05-21
 
 ### Fixed

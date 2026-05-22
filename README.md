@@ -117,7 +117,17 @@ mix test
 ` ` `bash
 git push origin main
 ` ` `
+
+## after_goal
+
+` ` `bash
+# Optional fifth hook — fires after the parent goal's final child task
+# completes. Omit entirely for the back-compat no-op path.
+./scripts/notify-team.sh "$GOAL_IDENTIFIER" "$GOAL_TITLE"
+` ` `
 ```
+
+**`after_goal` (v1.11.0+):** the Stride server bundles an `after_goal` entry in the `hooks` array of the response of `/complete` or `/mark_reviewed` when the completing task is the final child of a parent goal. Codex CLI has no plugin hook script, so the agent is responsible for the entire after_goal lifecycle: detect the entry in the response, read `## after_goal` from `.stride.md`, export `GOAL_ID` / `GOAL_IDENTIFIER` / `GOAL_TITLE` / `GOAL_DESCRIPTION` from the response's `hook.env` block, execute the section's commands via shell, capture `{exit_code, output, duration_ms}`, and POST the result to `PATCH /api/tasks/:goal_id/after_goal` to flip the goal to Done. A missing `## after_goal` section is a clean no-op (back-compat — the server's grace-window worker covers the goal transition). The hook is general-purpose — Slack notifications, artifact archival, release pipelines, project-level smoke tests are all valid uses. See `stride-workflow` SKILL.md Step 7+9 for the full procedure.
 
 ## Mandatory Skill Chain
 
