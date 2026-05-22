@@ -580,6 +580,34 @@ After the complete endpoint succeeds:
 
 **The workflow IS the automation.** When needs_review=false, proceed to the next task by activating the stride-claiming-tasks skill. Do not prompt the user — but do not skip the exploration and review phases of the next task either. Following every step IS the fast path.
 
+### Additional hook in the response: `after_goal` (when the completing task is the parent goal's final child)
+
+When the just-completed task is the **final remaining child of a parent goal**, the `/complete` (and later `/mark_reviewed`) response payload includes a fifth `after_goal` entry in its `hooks` array, alongside the usual `after_doing` / `before_review` / `after_review` entries. The entry's `hook.env` block carries `GOAL_ID`, `GOAL_IDENTIFIER`, `GOAL_TITLE`, `GOAL_DESCRIPTION` (plus the standard `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME`).
+
+**Because stride-codex has no plugin hook script, the agent is responsible for executing after_goal manually.** Five-step path:
+
+1. **Detect**: Inspect the response's `hooks` array. If any entry has `name == "after_goal"`, the after_goal lifecycle has fired.
+2. **Read**: Read the `## after_goal` section from `.stride.md`. If missing, skip steps 3-5 — the server's grace-window worker promotes the goal to Done automatically when no agent reports.
+3. **Export**: Set the `GOAL_*` env vars (and the standard `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME`) from the response's `hook.env` block before running commands. The server values are the single source of truth — never invent or derive them client-side.
+4. **Execute**: Run each command in the `## after_goal` section via the platform's shell tool. Capture `exit_code` (last command's exit), `output` (combined stdout+stderr), and `duration_ms` (wall-clock total).
+5. **POST**: Forward the captured result to flip the parent goal to Done:
+
+```bash
+curl -X PATCH "$STRIDE_API_URL/api/tasks/$GOAL_ID/after_goal" \
+  -H "Authorization: Bearer $STRIDE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg out \"$OUTPUT\" \"{exit_code: $EXIT_CODE, output: \\\$out, duration_ms: $DURATION_MS}\")"
+```
+
+A `2xx` with `exit_code == 0` transitions the goal to Done. A `2xx` with `exit_code != 0` records the failure on the goal's `after_goal_attempts` audit log and leaves the goal In Progress for the user to investigate. Do NOT silently retry on non-zero exit — surface the failure and let the operator decide.
+
+**Back-compat:**
+- Missing `## after_goal` section → skip the manual path entirely; the server's grace-window worker covers the goal transition.
+- Older agent runtimes that don't speak the protocol → same coverage path (grace-window worker promotes the goal after the configured wait with a synthetic attempt tagged `source: "after_goal_grace_worker"`).
+- The `## after_goal` hook is **general-purpose** — Slack notifications, artifact archival, release pipelines, project-level smoke tests are all valid uses. Not just PR creation.
+
+See `stride-workflow` SKILL.md Step 7 for the full hooks reference and Step 9 for the parallel write-up of this transition.
+
 ## Red Flags - STOP
 
 - "I'll mark it complete then run tests"
