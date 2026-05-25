@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.0] - 2026-05-25
+
+### Added
+
+- **`skills/stride-completing-tasks/SKILL.md`** — New subsection "Per-File Diff Capture (Manual, Wrapped-Body PUT — for v1.16.0+ servers)" documenting the optional agent-manual flow that mirrors what the auto-PUT hook does on other Stride plugins. Codex CLI has no plugin-side hook surface to host the auto-PUT, so this is documentation only — the existing inline-cat-in-complete flow remains the recommended default. The new section walks through a copy-pasteable `.stride.md` `## after_doing` block that (1) sources the canonical `capture_changed_files` function and writes the snapshot to `.stride-changed-files.json`, then (2) `curl -s -X PUT`s the snapshot to `$STRIDE_API_URL/api/tasks/$TASK_ID/changed_files` with the body wrapped as `{"changed_files": [...]}`. The body shape rule is documented explicitly with a side-by-side bare-vs-wrapped JSON comparison and an explicit reference to G174 / Plug.Parsers `_json` behavior so future readers do not accidentally simplify the body to a bare top-level array (which the server would persist as NULL, silently clearing the snapshot — this was the critical regression that made stride 1.17.2 a critical fix). Implemented as W848.
+
+### Why this release
+
+The Stride server's `PUT /api/tasks/:id/changed_files` endpoint has existed since 1.16.0 but stride-codex's completion guidance only ever showed the inline-in-complete shape — so Codex agents targeting v1.16.0+ servers who wanted to fire the snapshot up early (live diff panel, review-queue webhook) had to figure out the wrapped body shape from external references. This release closes that gap by documenting the wire-shape rule in the skill that every Codex agent reads before /complete.
+
+### Backward compatibility
+
+Behavior unchanged. Codex's existing inline-cat-in-complete flow remains the recommended default — the new subsection is presented as an alternative, not a replacement. No `.stride.md`, `.stride_auth.md`, or `.gitignore` changes are required.
+
+### Migration
+
+Update via your normal stride-codex install flow. No marketplace pin update — stride-codex is not distributed through stride-marketplace.
+
+### Source
+
+W848. Documentation-only release that mirrors the G174 wrapped-body rule from main stride 1.17.2 into the Codex variant's completion skill. No code surface in stride-codex (Codex CLI has no hook surface), hence no plugin.json version pin to bump — the version lives only in this CHANGELOG.
+
 ## [1.11.0] - 2026-05-22
 
 ### Added

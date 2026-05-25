@@ -480,6 +480,86 @@ payloads that omit it remain fully valid forever — the server treats the
 absence as "no diff data available" and the review queue shows the file list
 from `actual_files_changed` without an inline diff panel.
 
+### Per-File Diff Capture (Manual, Wrapped-Body PUT — for v1.16.0+ servers)
+
+Stride server 1.16.0+ exposes a dedicated `PUT /api/tasks/:id/changed_files`
+endpoint that the auto-PUT hook in the main Claude plugin uses. Codex CLI has
+no plugin-side hook to host that PUT for you — so when targeting a v1.16.0+
+server, agents have two equally valid choices:
+
+1. **Inline `changed_files` in the `/complete` body** (the section above).
+   Works against every Stride server version forever. Recommended default for
+   Codex.
+2. **PUT the snapshot separately before `/complete`** (this section). Matches
+   the wire shape the auto-PUT hook uses on other plugins, which keeps the
+   server-side processing path identical regardless of which plugin produced
+   the snapshot. Useful when an external tool consumes the `changed_files`
+   API in real time (live diff panel, review-queue webhook) rather than
+   waiting for the completion payload.
+
+**Critical — the PUT body MUST be wrapped as `{"changed_files": [...]}`,
+never a bare top-level array.** Under Plug.Parsers, a bare top-level array
+lands at `params["_json"]`, validates as `{:ok, nil}`, and the server persists
+NULL — silently clearing whatever snapshot was previously stored. The 1.17.2
+release of the main plugin shipped this fix as a critical wire-shape
+correction (G174). Future readers: do NOT simplify the body to a bare array
+to "save a wrapping layer" — that IS the broken state.
+
+**Copy-pasteable `## after_doing` block.** Drop this into your project's
+`.stride.md` so the snapshot is captured AND PUT in the same blocking
+phase. URL and token are sourced from the same env vars your `/complete`
+curl already uses — no `.stride_auth.md` reads, no new env vars.
+
+```bash
+## after_doing
+mix test
+mix credo --strict
+# (1) Capture the snapshot. Same canonical capture_changed_files function
+# as the inline-cat flow above — vendor the body of stride/hooks/stride-hook.sh
+# between the `# --- Per-file diff capture` banner and the next `# ---`
+# banner into your own script and point CAPTURE_SCRIPT at it.
+bash -c 'source "${CAPTURE_SCRIPT:-$HOME/.stride-scripts/capture-changed-files.sh}" && \
+  capture_changed_files "${TASK_BASE_REF:-HEAD~1}" \
+  > "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || true'
+# (2) PUT the wrapped body to the v1.16.0+ endpoint. The inline cat reads
+# the snapshot AFTER step (1) wrote it. Fire-and-forget — a 4xx/5xx or
+# network failure must NOT fail this after_doing hook. The body shape
+# wraps the bare array as {"changed_files": [...]} (G174).
+curl -s -X PUT "$STRIDE_API_URL/api/tasks/$TASK_ID/changed_files" \
+  -H "Authorization: Bearer $STRIDE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"changed_files\":$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json")}" \
+  > /dev/null 2>&1 || true
+```
+
+The `|| true` on both lines is essential — Codex CLI runs `## after_doing`
+as a blocking hook, so a missing capture script, an unset `TASK_ID`, or a
+transient network glitch must NOT abort the task. Both failures degrade
+to "no diff data uploaded for this task," which is a valid completion
+state on the server side.
+
+**No bare arrays — ever.** The shape that the server accepts is:
+
+```json
+{"changed_files": [{"path": "...", "diff": "..."}]}
+```
+
+Not this (Plug.Parsers persists NULL):
+
+```json
+[{"path": "...", "diff": "..."}]
+```
+
+If you later add a third-party tool that POSTs to the same endpoint, mirror
+the wrapped shape there too. The bare-array form is the broken state that
+made stride 1.17.2 a critical fix.
+
+**Choosing between the two flows.** Use inline-in-complete unless you have a
+specific reason to PUT separately — the inline flow is one fewer network
+call, one fewer place a transient failure can hide diff data. Use the PUT
+flow when external tooling consumes the `changed_files` API directly and
+needs the snapshot available before `/complete` lands.
+
 ## Explorer/Reviewer Result Schema
 
 Every `/complete` call **must** include both `explorer_result` and `reviewer_result` as top-level objects. Each is either a self-reported skip or a dispatched-custom-agent result. Server-side validation is pre-validated by `Kanban.Tasks.CompletionValidation`; invalid payloads are logged during the grace-period rollout and rejected with `422` once `:strict_completion_validation` flips.
