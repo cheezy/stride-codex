@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] - 2026-06-06
+
+Parity release: brings the Codex variant up to the canonical stride G210 feature set, which adds `security_considerations` as the **fifth** review_queue-scored field (alongside `acceptance_criteria`, `testing_strategy`, `pitfalls`, `patterns_to_follow`). Feature minor. All five content-bearing skill/agent files now treat `security_considerations` as a first-class scored deliverable, and the reviewer emits a fifth section verdict at `schema_version` **1.3**.
+
+### Added
+
+- **`skills/stride-creating-goals/SKILL.md` + `skills/stride-creating-tasks/SKILL.md` — `security_considerations` as the 5th scored field (W1024).** Adds `security_considerations` to the review_queue-scoring banner, the required/nesting field lists, the minimum-bar list, the Red Flags, the Rationalization Table, and the example JSON in both creation skills; creating-tasks also gains the `### security_considerations` Embedded-Object-Formats subsection (array-of-strings shape + the `"None — …"` escape hatch). Codex port wording (plain WRONG/RIGHT labels, the "NESTED TASKS ARE NOT EXEMPT" banner heading) preserved.
+- **`skills/stride-enriching-tasks/SKILL.md` + `agents/task-enricher.md` — security pass + 17-item checklist (W1025).** Step 5 now covers security analysis (input validation, authorization boundaries, secret handling, injection surfaces, data exposure) producing `security_considerations`; the pre-submission checklist grows 16 → 17 items; `security_considerations` is added to the PATCH/output example JSON, the field-type reminders, and the Red Flags.
+- **`agents/task-decomposer.md` + `agents/task-reviewer.md` — decomposer Required field + reviewer security verdict (W1026).** task-decomposer marks `security_considerations` Required in the field table, the output template, and every worked-example task. task-reviewer adds the Step 5 "Security Considerations Alignment" review step (steps renumbered), the `security_considerations` section verdict object, the `"security"` issue category, the expanded consistency rule, and bumps the reviewer `schema_version` **1.2 → 1.3**.
+- **`skills/stride-completing-tasks/SKILL.md` + `skills/stride-workflow/SKILL.md` — persist & extract the security verdict (W1027).** The `reviewer_result` structured block in completing-tasks lists the `security_considerations` section verdict; stride-workflow Step 6 copies `security_considerations` verbatim in the field map and the fallback omit-list, and adds a worked example at `schema_version` 1.3 carrying the security verdict.
+
+### Changed
+
+- **Manifest/docs reflect the fifth scored field (W1028).** `AGENTS.md` and `README.md` updated to describe the reviewer's `schema_version` 1.3 block with the `security_considerations` per-section verdict and to name `security_considerations` as the fifth review_queue-scored field. Version bumped 1.13.0 → 1.14.0 in `.codex-plugin/plugin.json`.
+
+### Backward compatibility
+
+Documentation/contract additions only. Older completions that omit `security_considerations` (or send the thin `reviewer_result` envelope / self-reported-skip form) continue to validate — the server tolerates the absent structured key. No hook script, parser contract, env-var matrix, or `.stride.md` change is required. The version bump affects discovery metadata only. All intentional Codex adaptations (manual hook execution, self-reported-skip primary path, `read`/`search`/`glob`/`shell` tool vocabulary, AGENTS.md context file, no command files) are preserved.
+
+### Source
+
+G210 (canonical) / W1024 (creation skills), W1025 (enrichment skill + enricher agent), W1026 (decomposer + reviewer agents), W1027 (completing-tasks + workflow skills), W1028 (release). Mirrors the canonical stride G210 `security_considerations` fifth-scored-field rollout into the Codex variant. No marketplace pin update — stride-codex is not distributed through stride-marketplace.
+
 ## [1.13.0] - 2026-06-06
 
 Parity release: brings the Codex variant up to the canonical stride 1.18.0–1.20.0 reviewer/creation feature set, plus a Codex-adapter review and an accuracy reconciliation. Feature minor. This release also reconciles the version metadata — `.codex-plugin/plugin.json` had lagged at 1.11.0 while the CHANGELOG was at 1.12.1; both are now coherent at 1.13.0.
