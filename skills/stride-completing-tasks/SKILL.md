@@ -603,7 +603,7 @@ Free-form reasons are rejected — the enum is the contract.
   "summary": "<40+ non-whitespace characters describing what was reviewed>",
   "issues_found": 0,
   "acceptance_criteria_checked": 5,
-  "schema_version": "1.2",
+  "schema_version": "1.3",
   "status": "approved",
   "issue_counts": {"critical": 0, "important": 0, "minor": 0},
   "issues": [],
@@ -613,14 +613,15 @@ Free-form reasons are rejected — the enum is the contract.
   "project_checks": [],
   "testing_strategy": {"status": "passed", "note": "<rationale>"},
   "patterns": {"status": "passed", "note": "<rationale>"},
-  "pitfalls": {"status": "passed", "note": "<rationale>"}
+  "pitfalls": {"status": "passed", "note": "<rationale>"},
+  "security_considerations": {"status": "passed", "note": "<rationale>"}
 }
 ```
 
 When the `task-reviewer` custom agent was dispatched, `reviewer_result` is the reviewer
 agent's emitted structured JSON block (`schema_version`, `status`, `issue_counts`,
 `issues[]`, `acceptance_criteria[]`, `project_checks[]`, and the per-section
-`testing_strategy`/`patterns`/`pitfalls` verdicts) copied **verbatim** and
+`testing_strategy`/`patterns`/`pitfalls`/`security_considerations` verdicts) copied **verbatim** and
 **merged** with the dispatch telemetry (`dispatched: true`, `duration_ms`) plus the
 derived legacy summary fields (`issues_found`, `acceptance_criteria_checked`,
 `summary`). Do NOT send only the thin legacy envelope — the structured fields are

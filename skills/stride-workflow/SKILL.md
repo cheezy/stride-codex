@@ -217,15 +217,68 @@ After the reviewer returns, extract the first fenced ```json block from its resp
   - `acceptance_criteria_checked` ← the number of entries in the structured `acceptance_criteria` array
   - `dispatched: true`, `duration_ms: <wall-clock ms>` (as before)
 - Structured fields (copied verbatim from the parsed JSON, but **omit any key the agent did not emit** — do not send empty placeholders):
-  - `status`, `issue_counts`, `issues`, `acceptance_criteria`, `testing_strategy`, `patterns`, `pitfalls`, `schema_version`
+  - `status`, `issue_counts`, `issues`, `acceptance_criteria`, `testing_strategy`, `patterns`, `pitfalls`, `security_considerations`, `schema_version`
 
 The structured block's schema is owned by `agents/task-reviewer.md`. Legacy + structured fields coexist in the same map; the server persists `reviewer_result` as `:jsonb` and tolerates the structured keys.
+
+**Worked example.** Given the reviewer response below (truncated for brevity)…
+
+````text
+Approved
+...prose summary + issue list + acceptance-criteria table...
+
+```json
+{
+  "schema_version": "1.3",
+  "summary": "Reviewed 3 acceptance criteria and 4 pitfalls against the diff; no issues found and all criteria met.",
+  "status": "approved",
+  "issue_counts": {"critical": 0, "important": 0, "minor": 0},
+  "issues": [],
+  "acceptance_criteria": [
+    {"criterion": "All task positions recalculate when a card moves columns", "status": "met", "evidence": "lib/kanban/tasks.ex:142-168"},
+    {"criterion": "Existing position-stable behavior unchanged", "status": "met", "evidence": "test/kanban/tasks_test.exs:198-240"},
+    {"criterion": "PubSub broadcast emitted exactly once per move", "status": "met", "evidence": "lib/kanban/tasks.ex:172"}
+  ],
+  "project_checks": [],
+  "testing_strategy": {"status": "passed", "note": "Move + broadcast paths covered by tests."},
+  "patterns": {"status": "passed", "note": "Mirrors the existing reorder pattern."},
+  "pitfalls": {"status": "passed", "note": "None of the 4 listed pitfalls violated."},
+  "security_considerations": {"status": "passed", "note": "Move query scoped to the current user's board; no new input or injection surface."}
+}
+```
+````
+
+…the resulting `reviewer_result` value in the Step 8 PATCH payload is:
+
+```json
+"reviewer_result": {
+  "dispatched": true,
+  "duration_ms": 29560,
+  "summary": "Reviewed 3 acceptance criteria and 4 pitfalls against the diff; no issues found and all criteria met.",
+  "issues_found": 0,
+  "acceptance_criteria_checked": 3,
+  "schema_version": "1.3",
+  "status": "approved",
+  "issue_counts": {"critical": 0, "important": 0, "minor": 0},
+  "issues": [],
+  "acceptance_criteria": [
+    {"criterion": "All task positions recalculate when a card moves columns", "status": "met", "evidence": "lib/kanban/tasks.ex:142-168"},
+    {"criterion": "Existing position-stable behavior unchanged", "status": "met", "evidence": "test/kanban/tasks_test.exs:198-240"},
+    {"criterion": "PubSub broadcast emitted exactly once per move", "status": "met", "evidence": "lib/kanban/tasks.ex:172"}
+  ],
+  "project_checks": [],
+  "testing_strategy": {"status": "passed", "note": "Move + broadcast paths covered by tests."},
+  "patterns": {"status": "passed", "note": "Mirrors the existing reorder pattern."},
+  "pitfalls": {"status": "passed", "note": "None of the 4 listed pitfalls violated."},
+  "security_considerations": {"status": "passed", "note": "Move query scoped to the current user's board; no new input or injection surface."}
+}
+```
 
 **Fallback when JSON parsing fails.** If no ```json block is present, or the block does not parse, do not abort the completion. Instead:
 
 1. Fall back to substring-matching the prose summary line ("Approved" or "N issues found (X critical, Y important, Z minor)") to populate `reviewer_result.summary` and `reviewer_result.issues_found`.
 2. Set `acceptance_criteria_checked` from the count of criterion lines you find in the prose acceptance-criteria table, or to `0` if none can be parsed.
-3. **Omit** every structured field (`status`, `issue_counts`, `issues`, `acceptance_criteria`, `testing_strategy`, `patterns`, `pitfalls`, `schema_version`) — do not send empty placeholders. The Kanban server tolerates their absence.
+3. **Omit** every structured field (`status`, `issue_counts`, `issues`, `acceptance_criteria`, `testing_strategy`, `patterns`, `pitfalls`, `security_considerations`, `schema_version`) — do not send empty placeholders. The Kanban server tolerates their absence.
 4. Keep `dispatched: true` and `duration_ms` as captured. The fallback path produces a degraded-but-valid completion, never a hard failure.
 
 **If custom agents are unavailable**, self-review (and submit the `reviewer_result` skip form with reason `self_reported_review` or `no_subagent_support` per `stride-completing-tasks`):
