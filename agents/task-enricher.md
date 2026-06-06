@@ -84,7 +84,7 @@ Check recent changes: git log --oneline -10 -- lib/path/to/suspected/file.ex
 
 1. **List sibling modules** in the same directory as key_files:
    ```
-   Glob lib/kanban_web/live/task_live/*.ex
+   glob lib/kanban_web/live/task_live/*.ex
    ```
 2. **Find the closest analog** — a feature similar to what's being built:
    ```
@@ -116,7 +116,7 @@ No similar feature exists?
    ```
    # lib/kanban/tasks.ex → test/kanban/tasks_test.exs
    # lib/kanban_web/live/task_live/index.ex → test/kanban_web/live/task_live/index_test.exs
-   Read test/kanban/tasks_test.exs
+   read test/kanban/tasks_test.exs
    ```
 2. **Read existing test files** to understand:
    - Test helper modules used (`ConnCase`, `DataCase`, custom helpers)
@@ -251,7 +251,7 @@ When search returns no results for the task keywords:
    ```
 2. **Search by directory structure** — explore the expected location
    ```
-   Glob lib/kanban_web/live/**/*.ex
+   glob lib/kanban_web/live/**/*.ex
    ```
 3. **Check if this is a new feature area** — the files may need to be created. Set `key_files` with `"note": "New file to create"`. Look at similar features for the pattern to follow.
 4. **If still no results** — this may be a novel feature. Set `key_files` based on project conventions (e.g., `lib/kanban/` for context, `lib/kanban_web/live/` for LiveView).

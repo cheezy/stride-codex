@@ -599,14 +599,43 @@ Free-form reasons are rejected — the enum is the contract.
 
 "reviewer_result": {
   "dispatched": true,
-  "summary": "<40+ non-whitespace characters describing what was reviewed>",
   "duration_ms": 8000,
+  "summary": "<40+ non-whitespace characters describing what was reviewed>",
+  "issues_found": 0,
   "acceptance_criteria_checked": 5,
-  "issues_found": 0
+  "schema_version": "1.2",
+  "status": "approved",
+  "issue_counts": {"critical": 0, "important": 0, "minor": 0},
+  "issues": [],
+  "acceptance_criteria": [
+    {"criterion": "<verbatim criterion>", "status": "met", "evidence": "<file:line>"}
+  ],
+  "project_checks": [],
+  "testing_strategy": {"status": "passed", "note": "<rationale>"},
+  "patterns": {"status": "passed", "note": "<rationale>"},
+  "pitfalls": {"status": "passed", "note": "<rationale>"}
 }
 ```
 
-`reviewer_result` additionally requires `acceptance_criteria_checked` and `issues_found` as non-negative integers when `dispatched` is `true`.
+When the `task-reviewer` custom agent was dispatched, `reviewer_result` is the reviewer
+agent's emitted structured JSON block (`schema_version`, `status`, `issue_counts`,
+`issues[]`, `acceptance_criteria[]`, `project_checks[]`, and the per-section
+`testing_strategy`/`patterns`/`pitfalls` verdicts) copied **verbatim** and
+**merged** with the dispatch telemetry (`dispatched: true`, `duration_ms`) plus the
+derived legacy summary fields (`issues_found`, `acceptance_criteria_checked`,
+`summary`). Do NOT send only the thin legacy envelope — the structured fields are
+what the Kanban review queue renders (issue list, acceptance verdicts, code-review
+checks). Extract the fenced ` ```json ` block per the `stride-workflow` skill's
+"Extracting the structured review block" (Step 6) — that section owns the
+legacy↔structured field mapping (e.g. `issues_found` = the sum of the values in
+`issue_counts`, `acceptance_criteria_checked` = the number of entries in
+`acceptance_criteria`). The schema itself is owned by `agents/task-reviewer.md`;
+do not redefine it here. The legacy `acceptance_criteria_checked` and
+`issues_found` integers remain required when `dispatched` is `true`. If the
+reviewer emitted no parseable ` ```json ` fence, fall back to the legacy-only
+envelope and omit the structured keys — never invent them (see the
+`stride-workflow` Step 6 fallback). Keys the agent did NOT emit must be omitted
+entirely, not sent as empty placeholders.
 
 ### Minimum summary length
 

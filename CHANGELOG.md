@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.0] - 2026-06-06
+
+Parity release: brings the Codex variant up to the canonical stride 1.18.0–1.20.0 reviewer/creation feature set, plus a Codex-adapter review and an accuracy reconciliation. Feature minor. This release also reconciles the version metadata — `.codex-plugin/plugin.json` had lagged at 1.11.0 while the CHANGELOG was at 1.12.1; both are now coherent at 1.13.0.
+
+### Added
+
+- **`agents/task-reviewer.md` — project-level checks (mirrors stride 1.18.0).** Adds a step 6 "Project-Level Checks": read `CODE-REVIEW.md` from the project root (via the `read` tool), parse each top-level Markdown bullet as a standing check (nested sub-bullets are context, not separate checks), map a case-sensitive `CRITICAL:` prefix to severity `critical` (default `important`, prefix stripped), and emit `project_checks[]` (`check` / `source` / `status` / `evidence`). Every `not_met` check requires a paired `issues[]` entry with `category: "project_check"`. When `CODE-REVIEW.md` is absent, `project_checks` renders as `[]`. Bumps the reviewer `schema_version` 1.0 → 1.1 and extends the `issues[]` category enum + the `changes_requested` status rule.
+- **`agents/task-reviewer.md` — per-section verdicts + schema 1.2 (mirrors stride 1.19.0 / D58).** Adds the `testing_strategy` / `patterns` / `pitfalls` verdict objects (`passed` | `failed` | `not_assessed` + one-line `note`), the consistency rule (a `failed` verdict must be backed by a matching-category `issues[]` entry and vice-versa), and the three step verdict-recording lines (Pitfall Detection / Pattern Compliance / Testing Strategy Alignment). Bumps the reviewer `schema_version` 1.1 → **1.2**.
+- **`skills/stride-completing-tasks/SKILL.md` + `skills/stride-workflow/SKILL.md` — structured `reviewer_result` persistence (mirrors stride 1.19.0 / D57).** Documents persisting the reviewer's full structured block verbatim as `reviewer_result` (the rich `schema_version` / `status` / `issue_counts` / `issues[]` / `acceptance_criteria[]` / `project_checks[]` / `testing_strategy` / `patterns` / `pitfalls` keys merged with the legacy `dispatched` / `duration_ms` / `issues_found` / `acceptance_criteria_checked` envelope) for the dispatched-agent case. The "Extracting the structured review block" subsection (conceptual extraction, field mapping, omit-unemitted-keys rule, JSON-parse-failure fallback) lives in **`stride-workflow` Step 6** (canonical location). The schema is cited (`agents/task-reviewer.md`), not redefined. Codex's primary reviewer path remains the self-reported skip (limited custom-agent dispatch); the rich block applies when a reviewer agent is dispatched.
+- **`skills/stride-workflow/SKILL.md` + `skills/stride-creating-tasks/SKILL.md` + `skills/stride-creating-goals/SKILL.md` — context-informed creation docs (mirrors stride 1.20.0).** Adds a "Context-Informed Creation" section to the orchestrator and "Consuming Provided Context" sections to the two creation skills (context→field mapping, augment-never-override rule, still-required four review_queue fields, and the unchanged `"goals"` root-key / index-dependency rules). Framed for Codex's command-less model: invocation is activating `stride-workflow` with a creation intent + optional directory path (the orchestrator reads the `.md` bundle via `glob`/`read`), **not** `/stride:create-*` commands or command files — the sub-skill `## STOP — orchestrator check` gate is referenced (Codex has no activation-marker file).
+
+### Changed
+
+- **Codex-adapter review (AGENTS.md, install.sh, install.ps1, README.md).** Corrected the agent count (Four → Five, added `task-enricher`); documented the full five-section manual hook-execution model incl. `after_goal` (hook lifecycle table, env-var matrix, accurate result-field-to-endpoint mapping); added a `git` pre-check to `install.sh` (parity with `install.ps1`); replaced hardcoded install counts with dynamic counts; added `@()` array-forcing to `install.ps1`; and added the `after_goal` row + corrected the result-field bullet in README.
+- **Accuracy reconciliation.** Reconciled all 7 skills + 5 agents + AGENTS.md against canonical: ported the previously-stubbed `task-decomposer` and `hook-diagnostician` agent bodies to their full canonical form (hook-diagnostician reframed for Codex's manual hook model — raw-text input primary), restored dropped `task-reviewer` review-step bullets, bumped the stale `stride-subagent-workflow` extraction example to schema 1.2, and aligned residual tool-name vocabulary — all while preserving the intentional Codex adaptations (manual hook execution, self-reported-skip primary path, `read`/`search`/`glob`/`shell` tool vocabulary, `.agents/` install destinations, AGENTS.md context file, no command files).
+
+### Backward compatibility
+
+The reviewer-schema, structured-`reviewer_result`, and context-creation changes are documentation/contract additions — older completions that still send the thin `reviewer_result` envelope (or the self-reported-skip form) continue to validate. No hook script, parser contract, env-var matrix, or `.stride.md` change is required. The version-metadata reconciliation (plugin.json 1.11.0 → 1.13.0) is the only non-documentation change and affects discovery metadata only.
+
+### Source
+
+G_codex_parity / W976 (adapter review), W977 (1.18.0 project_checks), W978 (1.19.0/D58 section verdicts), W979 (1.19.0/D57 structured reviewer_result persistence), W980 (1.20.0 context-threading docs), W981 (accuracy reconciliation + version-mismatch identification), W982 (release). Mirrors the stride/ **1.18.0** (project_checks), **1.19.0** (section verdicts + structured persistence), and **1.20.0** (context-informed creation) releases into the Codex variant. No marketplace pin update — stride-codex is not distributed through stride-marketplace. No gh release is cut here — that step is human-triggered.
+
 ## [1.12.1] - 2026-05-25
 
 ### Updated

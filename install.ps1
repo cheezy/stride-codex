@@ -82,8 +82,9 @@ try {
     }
 
     # Copy skills (each skill is a directory containing SKILL.md).
+    # @() forces array semantics so .Count is correct even for a single result on PS 5.1.
     $skillSrcRoot = Join-Path $cloneDir 'skills'
-    $skillDirs = Get-ChildItem -Path $skillSrcRoot -Directory
+    $skillDirs = @(Get-ChildItem -Path $skillSrcRoot -Directory)
     Write-Host ("Installing {0} skills..." -f $skillDirs.Count)
     foreach ($skillDir in $skillDirs) {
         $destSkillDir = Join-Path (Join-Path $InstallDir 'skills') $skillDir.Name
@@ -92,9 +93,9 @@ try {
         Copy-Item -Path $srcSkill -Destination (Join-Path $destSkillDir 'SKILL.md') -Force
     }
 
-    # Copy agents (each agent is a .md file).
+    # Copy agents (each agent is a bare .md file, per Codex naming convention).
     $agentSrcRoot = Join-Path $cloneDir 'agents'
-    $agentFiles = Get-ChildItem -Path $agentSrcRoot -Filter '*.md' -File
+    $agentFiles = @(Get-ChildItem -Path $agentSrcRoot -Filter '*.md' -File)
     Write-Host ("Installing {0} agents..." -f $agentFiles.Count)
     foreach ($agentFile in $agentFiles) {
         Copy-Item -Path $agentFile.FullName -Destination (Join-Path $InstallDir 'agents') -Force

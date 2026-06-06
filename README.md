@@ -165,7 +165,7 @@ stride-enriching-tasks           ← WHEN a task has empty key_files/testing_str
 
 | Skill | Trigger | Purpose |
 |-------|---------|---------|
-| `stride-workflow` | Starting task work | **RECOMMENDED** — Single orchestrator for the full lifecycle |
+| `stride-workflow` | Starting task work | **RECOMMENDED** — Single orchestrator for the full lifecycle; also supports context-informed creation (activate with a creation intent + optional directory path; no command files in Codex) |
 | `stride-claiming-tasks` | `GET /api/tasks/next` or `POST /api/tasks/claim` | Claim tasks with before_doing hook execution |
 | `stride-completing-tasks` | `PATCH /api/tasks/:id/complete` | Complete tasks with after_doing/before_review hooks |
 | `stride-creating-tasks` | `POST /api/tasks` (work/defect) | Create tasks with correct field formats |
@@ -178,7 +178,8 @@ stride-enriching-tasks           ← WHEN a task has empty key_files/testing_str
 | Agent | Purpose |
 |-------|---------|
 | `task-explorer` | Explore key_files and patterns before implementation |
-| `task-reviewer` | Review changes against acceptance criteria before completion |
+| `task-reviewer` | Review changes against acceptance criteria before completion; emits a structured `reviewer_result` (schema 1.2) with `project_checks[]` (from a project-root `CODE-REVIEW.md`) and per-section testing_strategy/patterns/pitfalls verdicts |
+| `task-enricher` | Populate sparse tasks (empty key_files/testing_strategy/verification_steps) before claiming |
 | `task-decomposer` | Break goals into dependency-ordered child tasks |
 | `hook-diagnostician` | Diagnose hook failures with prioritized fix plans |
 
@@ -204,6 +205,7 @@ Agents are invoked as subagents based on task complexity — see the `stride-sub
 | `after_doing` | Before marking complete | Yes | 120s |
 | `before_review` | After marking complete | Yes | 60s |
 | `after_review` | After review approval | Yes | 60s |
+| `after_goal` | After the parent goal's final child task completes | Yes | 60s typical (honors server `hook.timeout`) |
 
 **Blocking hooks** prevent the next step if any command fails. The agent must fix the issue and re-run the hook before proceeding.
 
@@ -212,7 +214,7 @@ Agents are invoked as subagents based on task complexity — see the `stride-sub
 - Execute each command line **one at a time** — do not combine into a single script
 - **Never prompt for permission** — hooks are pre-authorized by the user who authored them
 - Capture exit codes — a non-zero exit code means the hook failed
-- Include the hook result in the API call (`before_doing_result`, `after_doing_result`, `before_review_result`)
+- Include each hook result in the matching API call: `before_doing_result` on the `POST /api/tasks/claim` body; `after_doing_result` and `before_review_result` on the `PATCH /api/tasks/:id/complete` body. (`after_goal` results POST separately to `PATCH /api/tasks/:goal_id/after_goal`.)
 
 ## API Authorization
 

@@ -37,6 +37,12 @@ else
   echo "Installing Stride for Codex CLI into ~/.agents/ (global)..."
 fi
 
+# Require git before touching the filesystem (mirrors install.ps1).
+if ! command -v git > /dev/null 2>&1; then
+  echo "Error: git not found. Install git and re-run." >&2
+  exit 1
+fi
+
 # Create directories
 mkdir -p "$INSTALL_DIR/skills" "$INSTALL_DIR/agents"
 
@@ -48,15 +54,17 @@ echo "Downloading from $REPO..."
 git clone --quiet --depth 1 "$REPO" "$TMPDIR/stride-codex"
 
 # Copy skills (each skill is a directory with SKILL.md)
-echo "Installing 6 skills..."
+skill_count=$(find "$TMPDIR/stride-codex/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+echo "Installing $skill_count skills..."
 for skill_dir in "$TMPDIR/stride-codex/skills"/*/; do
   skill_name=$(basename "$skill_dir")
   mkdir -p "$INSTALL_DIR/skills/$skill_name"
   cp "$skill_dir/SKILL.md" "$INSTALL_DIR/skills/$skill_name/SKILL.md"
 done
 
-# Copy agents (each agent is a .md file)
-echo "Installing 4 agents..."
+# Copy agents (each agent is a bare .md file, per Codex naming convention)
+agent_count=$(find "$TMPDIR/stride-codex/agents" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')
+echo "Installing $agent_count agents..."
 cp "$TMPDIR/stride-codex/agents/"*.md "$INSTALL_DIR/agents/"
 
 # Copy AGENTS.md to project root if --project, or to global dir

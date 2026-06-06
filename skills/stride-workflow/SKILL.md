@@ -35,6 +35,23 @@ You do NOT need to activate `stride-claiming-tasks`, `stride-subagent-workflow`,
 
 **Note:** The individual skills (`stride-claiming-tasks`, `stride-subagent-workflow`, `stride-completing-tasks`) remain available for standalone use when needed -- for example, when resuming a partially completed task or when only one phase needs to be repeated. This orchestrator is the preferred entry point for new task work.
 
+## Context-Informed Creation
+
+You can ask the orchestrator to create work informed by existing markdown context (for example, a requirements doc, or a directory of design notes). **Codex CLI has no native command files**, so there are no `/stride:create-*` commands — instead, activate `stride-workflow` with a **creation intent** (what you want created — tasks/defects or a goal with nested tasks) and an **optional directory path** to the markdown context.
+
+The flow is:
+
+1. The orchestrator enumerates the markdown files at the provided directory path — listing the `.md` files with `glob` and reading each with the `read` tool — and assembles a **read-only context bundle** (the enumerated file contents) plus the **creation intent**.
+2. The orchestrator dispatches the creation sub-skill (`stride-creating-tasks` or `stride-creating-goals`) and **forwards the context bundle verbatim** to it.
+
+**Contract:**
+
+- The context bundle is **read-only** — the creation sub-skills consume it as reference material; they never edit the source markdown.
+- The bundle is forwarded **verbatim** — the orchestrator does not summarize, truncate, or reinterpret it before dispatch.
+- The sub-skill **STOP gate still applies.** Each creation sub-skill begins with a `## STOP — orchestrator check` and runs only when reached through this orchestrator. Context-informed creation satisfies that gate the sanctioned way — by routing through here — it never bypasses or weakens it.
+
+The task-field and batch-shape contracts the creation sub-skills enforce are **not** duplicated here — they live in `stride-creating-tasks` and `stride-creating-goals`.
+
 ---
 
 ## Step 0: Prerequisites Check
@@ -179,14 +196,39 @@ Follow:
 - The git diff of all your changes
 - The task's `acceptance_criteria`, `pitfalls`, `patterns_to_follow`, and `testing_strategy`
 
-The reviewer returns "Approved" or a list of issues (Critical, Important, Minor).
+The reviewer returns a human-readable prose summary followed by a fenced ```json block. The schema of that block is owned by `agents/task-reviewer.md` — do not duplicate field definitions here.
 
 - **Fix all Critical issues** before proceeding
 - **Fix all Important issues** before proceeding
 - Minor issues are optional but recommended
-- **Save the reviewer's full output** -- you'll include it as `review_report` in Step 8
+- **Save the reviewer's full response (prose + JSON block)** -- you'll include it verbatim as `review_report` in Step 8
 
-**If custom agents are unavailable**, self-review:
+#### Extracting the structured review block
+
+After the reviewer returns, extract the first fenced ```json block from its response and use it to populate `reviewer_result` in your Step 8 completion payload. The same `reviewer_result` map carries both the legacy summary fields (kept for backwards compatibility with older Kanban deploys) and the structured fields (the actual deliverable for downstream consumers — they live inside `reviewer_result`, never under a new top-level API key).
+
+**Extraction pattern** — scan the reviewer's response for the first fenced ```json block: the opening ` ```json ` fence through the next closing ` ``` ` fence. Take the text between those two fence lines (the fence markers themselves are not part of the payload) and parse it as JSON. The reviewer's response is already in your context, so no file read is needed; if the reviewer instead wrote its response to a file, use the `read` tool to load it first, then scan for the same fence.
+
+**Field mapping into `reviewer_result`:**
+
+- Legacy fields (always populated):
+  - `summary` ← the structured block's `summary`
+  - `issues_found` ← the sum of the values in the structured `issue_counts` object (sum only the recognized severity keys you receive; pass through any unknown severity keys verbatim inside the structured `issue_counts` object)
+  - `acceptance_criteria_checked` ← the number of entries in the structured `acceptance_criteria` array
+  - `dispatched: true`, `duration_ms: <wall-clock ms>` (as before)
+- Structured fields (copied verbatim from the parsed JSON, but **omit any key the agent did not emit** — do not send empty placeholders):
+  - `status`, `issue_counts`, `issues`, `acceptance_criteria`, `testing_strategy`, `patterns`, `pitfalls`, `schema_version`
+
+The structured block's schema is owned by `agents/task-reviewer.md`. Legacy + structured fields coexist in the same map; the server persists `reviewer_result` as `:jsonb` and tolerates the structured keys.
+
+**Fallback when JSON parsing fails.** If no ```json block is present, or the block does not parse, do not abort the completion. Instead:
+
+1. Fall back to substring-matching the prose summary line ("Approved" or "N issues found (X critical, Y important, Z minor)") to populate `reviewer_result.summary` and `reviewer_result.issues_found`.
+2. Set `acceptance_criteria_checked` from the count of criterion lines you find in the prose acceptance-criteria table, or to `0` if none can be parsed.
+3. **Omit** every structured field (`status`, `issue_counts`, `issues`, `acceptance_criteria`, `testing_strategy`, `patterns`, `pitfalls`, `schema_version`) — do not send empty placeholders. The Kanban server tolerates their absence.
+4. Keep `dispatched: true` and `duration_ms` as captured. The fallback path produces a degraded-but-valid completion, never a hard failure.
+
+**If custom agents are unavailable**, self-review (and submit the `reviewer_result` skip form with reason `self_reported_review` or `no_subagent_support` per `stride-completing-tasks`):
 - [ ] Each line of `acceptance_criteria` -- is it met?
 - [ ] Each item in `pitfalls` -- did you avoid it?
 - [ ] `patterns_to_follow` -- does your code match?
