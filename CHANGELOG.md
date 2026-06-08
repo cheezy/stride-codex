@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.0] - 2026-06-08
+
+Bundled release covering two ports from the main `stride` plugin (G217 + G218 parity).
+
+### Added
+
+- **`skills/stride-completing-tasks/SKILL.md`** (W1048 / D61) — The manual wrapped-body PUT section now documents the **transport-encoded envelope** `{"changed_files":{"encoding":"base64","data":"<single-line-base64>"}}` (with a raw-object fallback when `base64` is unavailable, and the WAF rationale) for agents who PUT the `changed_files` snapshot to a v1.16.0+ server. Codex CLI has no automated hook, so the encoding is documented for the copy-pasteable `## after_doing` block rather than executed by a plugin hook. The diff-shape rules remain referenced from `docs/diff-contract.md`, not duplicated.
+
+### Fixed
+
+- **`skills/stride-workflow/SKILL.md`, `skills/stride-subagent-workflow/SKILL.md`** (W1056 / D63) — Both skills' "Extracting the structured review block" guidance built `reviewer_result` from a hand-maintained enumerated copy-list of structured keys. `stride-workflow` omitted `project_checks`; `stride-subagent-workflow` omitted **both** `project_checks` and `security_considerations`. The result: the reviewer's CODE-REVIEW.md per-bullet audit (and, on the subagent path, the security verdict) was silently dropped on completion, so the Kanban review queue's **Code review** panel (and security tile) rendered nothing. Both skills now use a **verbatim passthrough**: copy the reviewer's entire parsed JSON object into `reviewer_result` and overlay only the legacy summary fields — fixing both omissions at once. Both fallbacks were inverted to legacy-only send lists.
+
+### Updated
+
+- **`agents/task-reviewer.md`** (W1056 / W1049) — Added an explicit **consumption invariant**: the canonical schema is the only place the structured key-set is enumerated, and the completion path MUST persist the reviewer's emitted JSON verbatim and MUST NOT maintain its own allow-list of keys to copy.
+
+### Backward compatibility
+
+Documentation/skill-instruction change only — no wire-shape, hook, or config changes (Codex CLI has no automated hook). The `changed_files` base64 envelope is documented for v1.16.0+ servers that accept it (ships in the kanban repo), with the raw-object fallback for older deployments. `project_checks[]` and `security_considerations` already existed and are already rendered by the review queue; this release simply stops dropping them. Not distributed through a marketplace.
+
+### Source
+
+W1048 (D61 base64 changed_files transport documentation), W1056 (D63 reviewer_result verbatim passthrough + W1049 consumption invariant). Mirrors the main `stride` plugin's 1.22.0 (D61) and 1.22.1 (project_checks) releases.
+
 ## [1.14.0] - 2026-06-06
 
 Parity release: brings the Codex variant up to the canonical stride G210 feature set, which adds `security_considerations` as the **fifth** review_queue-scored field (alongside `acceptance_criteria`, `testing_strategy`, `pitfalls`, `patterns_to_follow`). Feature minor. All five content-bearing skill/agent files now treat `security_considerations` as a first-class scored deliverable, and the reviewer emits a fifth section verdict at `schema_version` **1.3**.
