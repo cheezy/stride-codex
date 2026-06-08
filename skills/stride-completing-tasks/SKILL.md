@@ -497,13 +497,25 @@ server, agents have two equally valid choices:
    API in real time (live diff panel, review-queue webhook) rather than
    waiting for the completion payload.
 
-**Critical — the PUT body MUST be wrapped as `{"changed_files": [...]}`,
-never a bare top-level array.** Under Plug.Parsers, a bare top-level array
-lands at `params["_json"]`, validates as `{:ok, nil}`, and the server persists
-NULL — silently clearing whatever snapshot was previously stored. The 1.17.2
-release of the main plugin shipped this fix as a critical wire-shape
-correction (G174). Future readers: do NOT simplify the body to a bare array
-to "save a wrapping layer" — that IS the broken state.
+**Critical — D61 transport encoding.** Send the PUT body as the
+**transport-encoded envelope** `{"changed_files":{"encoding":"base64","data":"<single-line-base64>"}}`,
+falling back to the raw object `{"changed_files":[...]}` when `base64` is
+unavailable — **never a bare top-level array**. Two rules combine here:
+
+- **Base64 envelope (D61).** An edge request filter (WAF) in front of the
+  Stride server can misread a dense unified code diff as an attack payload and
+  silently drop the upload, leaving `changed_files` empty in the review queue.
+  Base64-wrapping the body neutralizes that false positive; the server decodes
+  it back to the identical list. The base64 MUST be single-line (strip any wrap
+  newlines) so it is valid inside the JSON string. The main Claude plugin
+  shipped this in its 1.22.0 release.
+- **Object wrapper, never a bare array (G174).** On both the base64 and the
+  raw-fallback paths the value stays wrapped in a `{"changed_files": ...}`
+  object. Under Plug.Parsers a bare top-level array lands at `params["_json"]`,
+  validates as `{:ok, nil}`, and the server persists NULL — silently clearing
+  whatever snapshot was previously stored (the 1.17.2 G174 fix). Future readers:
+  do NOT simplify the body to a bare array to "save a wrapping layer" — that IS
+  the broken state.
 
 **Copy-pasteable `## after_doing` block.** Drop this into your project's
 `.stride.md` so the snapshot is captured AND PUT in the same blocking
@@ -521,15 +533,28 @@ mix credo --strict
 bash -c 'source "${CAPTURE_SCRIPT:-$HOME/.stride-scripts/capture-changed-files.sh}" && \
   capture_changed_files "${TASK_BASE_REF:-HEAD~1}" \
   > "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || true'
-# (2) PUT the wrapped body to the v1.16.0+ endpoint. The inline cat reads
-# the snapshot AFTER step (1) wrote it. Fire-and-forget — a 4xx/5xx or
-# network failure must NOT fail this after_doing hook. The body shape
-# wraps the bare array as {"changed_files": [...]} (G174).
-curl -s -X PUT "$STRIDE_API_URL/api/tasks/$TASK_ID/changed_files" \
-  -H "Authorization: Bearer $STRIDE_API_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d "{\"changed_files\":$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json")}" \
-  > /dev/null 2>&1 || true
+# (2) PUT the snapshot to the v1.16.0+ endpoint as the D61 transport-encoded
+# envelope {"changed_files":{"encoding":"base64","data":"<b64>"}} so an edge
+# request filter cannot misread the diff as an attack and drop the upload;
+# fall back to the raw {"changed_files":[...]} object when base64 is
+# unavailable (never a bare array — G174). The inline reads run AFTER step (1)
+# wrote the snapshot. Fire-and-forget — a 4xx/5xx or network failure must NOT
+# fail this after_doing hook.
+_cf="${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json"
+if command -v base64 > /dev/null 2>&1; then
+  _b64=$(base64 < "$_cf" 2>/dev/null | tr -d '\r\n')
+  curl -s -X PUT "$STRIDE_API_URL/api/tasks/$TASK_ID/changed_files" \
+    -H "Authorization: Bearer $STRIDE_API_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d "{\"changed_files\":{\"encoding\":\"base64\",\"data\":\"$_b64\"}}" \
+    > /dev/null 2>&1 || true
+else
+  curl -s -X PUT "$STRIDE_API_URL/api/tasks/$TASK_ID/changed_files" \
+    -H "Authorization: Bearer $STRIDE_API_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d "{\"changed_files\":$(cat "$_cf")}" \
+    > /dev/null 2>&1 || true
+fi
 ```
 
 The `|| true` on both lines is essential — Codex CLI runs `## after_doing`
@@ -538,13 +563,20 @@ transient network glitch must NOT abort the task. Both failures degrade
 to "no diff data uploaded for this task," which is a valid completion
 state on the server side.
 
-**No bare arrays — ever.** The shape that the server accepts is:
+**Wire shapes.** The server accepts the D61 transport-encoded envelope
+(preferred — the base64 `data` is the single-line base64 of the JSON array):
+
+```json
+{"changed_files": {"encoding": "base64", "data": "<single-line-base64-of-the-array>"}}
+```
+
+…and the raw object (fallback, when `base64` is unavailable):
 
 ```json
 {"changed_files": [{"path": "...", "diff": "..."}]}
 ```
 
-Not this (Plug.Parsers persists NULL):
+Never a bare top-level array (Plug.Parsers persists NULL):
 
 ```json
 [{"path": "...", "diff": "..."}]
