@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.0] - 2026-06-14
+
+Parity release: brings the Codex variant to canonical `stride` **v1.24.0 (G222)** and **v1.26.0 (D66)** for the review-report-completeness contract and the `acceptance_criteria` 1:1 hard rule. Feature minor (1.16.0 → 1.17.0).
+
+### Updated
+
+- **`agents/task-reviewer.md`** (D70 / W1073 + D66) — Added the **strict `not_assessed` reception clause** to the "You will receive" line: every task-supplied field is passed, a field is absent only when the task itself genuinely left it empty, so a task-supplied section MUST get a real `passed`/`failed` verdict and `not_assessed` is reserved strictly for task-empty sections. Added the **D66 `acceptance_criteria` 1:1 verbatim hard rule** to both the step-1 Acceptance Criteria Verification list and the `acceptance_criteria` schema entry — exactly one entry per criterion line, copied verbatim in the task's wording and order, never split/merged/reworded/added/dropped, array length == the task's criterion-line count (prevents the W1099 `6/5` mismatched-count display).
+- **`skills/stride-workflow/SKILL.md`** (D71 / W1072 + W1074 + D66) — The reviewer-dispatch field list now lists **all 8 fields** (`acceptance_criteria`, `pitfalls`, `patterns_to_follow`, `testing_strategy`, `security_considerations`, `description`, `what`, `why`) with NO-EXCEPTIONS prose; the "Extracting the structured review block" section gains the **whole-object-copy self-check** (every section survives into `reviewer_result`; submitted `project_checks` count == the reviewer's) and the **D66 re-review rule** (re-reviews pass `acceptance_criteria` unchanged and keep the array identical to the task's canonical list) plus the `acceptance_criteria`-count == criterion-line-count self-check.
+- **`skills/stride-completing-tasks/SKILL.md`** (D71 / W1075) — Added the **MANDATORY pre-submission self-check (hard gate)** section and a matching Verification Checklist item: before every `/complete`, confirm every reviewer section is present, `project_checks` is complete, and no task-supplied section came back `not_assessed`. There is no bypass — not for small tasks, not for trivial tasks.
+- **`skills/stride-subagent-workflow/SKILL.md`** (D71 / W1076) — The Phase 3 reviewer-input list now passes **all 8 fields** (single-sourced against `agents/task-reviewer.md`), plus the whole-object-copy reminder pointing at the orchestrator and completing-tasks self-checks.
+
+### Behavior change
+
+The new hard gate is an **intended forcing function**: completions that previously submitted a thin or count-inconsistent `reviewer_result` (a dropped section, a trimmed `project_checks`, or a task-supplied section left `not_assessed`) will now fail the pre-submission self-check and must be fixed before `/complete`. This matches the canonical Kanban server contract, which now hard-rejects such reports.
+
+### Not applicable to Codex
+
+Of the canonical releases after stride v1.23.0, the **hook-script releases are N/A for the Codex variant**, which ships no hook script and has no `.stride-env-cache` / `TASK_BASE_REF` / `.stride-diff-upload-state` mechanism (Codex executes `.stride.md` hooks agent-manually):
+
+- **stride v1.25.0** — hook-script change; no codex equivalent.
+- **stride v1.26.0 (D65 half)** — the hook-script half of the release; N/A. Only the **D66** agent-prompt half (the `acceptance_criteria` 1:1 rule) applies and is ported above.
+- **stride v1.27.0 (D67)** — hook-script change; no codex equivalent.
+- **stride v1.28.0 (G224)** — hook-script change; no codex equivalent.
+
+No hook-script files were invented for codex.
+
+### Source
+
+Goal G230 (children D70, D71) — the Codex port of canonical stride v1.24.0 (G222: W1072-W1076) and v1.26.0 (D66). stride-codex is not distributed through a marketplace, so no marketplace pin update.
+
 ## [1.16.0] - 2026-06-08
 
 Parity release: brings the Codex variant to G220/G219 parity for the reviewer `project_checks` `not_applicable` status and full-checklist emission (canonical: stride v1.23.0, commit a4e7e6f, W1057). Feature minor (1.15.0 → 1.16.0).

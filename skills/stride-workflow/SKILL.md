@@ -194,7 +194,9 @@ Follow:
 
 **If the `task-reviewer` custom agent is available**, invoke it with:
 - The git diff of all your changes
-- The task's `acceptance_criteria`, `pitfalls`, `patterns_to_follow`, and `testing_strategy`
+- **Every review field the task supplies — NO EXCEPTIONS:** the task's `acceptance_criteria`, `pitfalls`, `patterns_to_follow`, `testing_strategy`, `security_considerations`, `description`, `what`, and `why`. This list MUST match the reviewer's documented input contract (the "You will receive" line in `agents/task-reviewer.md`) — pass every field the task carries, never a subset, never with a small-task or brevity discount. Omitting a supplied field (most often `security_considerations`) is the exact defect this prevents: a section the reviewer is never handed comes back `not_assessed` even though the task specified it.
+
+**Re-review and follow-up rounds — preserve the canonical criteria list.** When you re-invoke the reviewer (or continue it) to re-verify after fixing issues from a `changes_requested` round, the follow-up prompt MUST pass the task's `acceptance_criteria` field **unchanged** and instruct the reviewer to keep its `acceptance_criteria` array **identical to the task's canonical list** — one entry per criterion line, verbatim and in the task's order, never split, merged, reworded, added, or dropped (the same 1:1 hard rule the reviewer schema enforces in `agents/task-reviewer.md`). Never hand the re-review only the issues you fixed and let it re-derive the criteria: a re-review that re-enumerates the criteria in its own words corrupts the persisted count — this is exactly how a re-review round on task W1099 turned a 5-criterion task into a `6/5` review display.
 
 The reviewer returns a human-readable prose summary followed by a fenced ```json block. The schema of that block is owned by `agents/task-reviewer.md` — do not duplicate field definitions here.
 
@@ -207,7 +209,43 @@ The reviewer returns a human-readable prose summary followed by a fenced ```json
 
 After the reviewer returns, extract the first fenced ```json block from its response and use it to populate `reviewer_result` in your Step 8 completion payload. The same `reviewer_result` map carries both the legacy summary fields (kept for backwards compatibility with older Kanban deploys) and the structured fields (the actual deliverable for downstream consumers — they live inside `reviewer_result`, never under a new top-level API key).
 
-**Extraction pattern** — scan the reviewer's response for the first fenced ```json block: the opening ` ```json ` fence through the next closing ` ``` ` fence. Take the text between those two fence lines (the fence markers themselves are not part of the payload) and parse it as JSON. The reviewer's response is already in your context, so no file read is needed; if the reviewer instead wrote its response to a file, use the `read` tool to load it first, then scan for the same fence.
+**Extraction pattern** — extract the first ```json fence and parse it, then mechanically copy the whole object and run the self-check:
+
+```python
+import re, json
+m = re.search(r'```json\n(.*?)\n```', reviewer_response, re.DOTALL)
+structured = json.loads(m.group(1))  # the WHOLE parsed schema
+
+# Whole-object copy — carry EVERY section through, then overlay the legacy
+# fields. NEVER re-type or hand-pick keys; selecting a subset is exactly how
+# project_checks got truncated (3 of 26 reached the server).
+reviewer_result = dict(structured)
+reviewer_result.update({
+    "dispatched": True,
+    "duration_ms": wall_clock_ms,
+    "summary": structured["summary"],
+    "issues_found": sum(structured["issue_counts"].values()),
+    "acceptance_criteria_checked": len(structured["acceptance_criteria"]),
+})
+
+# MANDATORY self-check — run before EVERY /complete, NO EXCEPTIONS. A failure
+# here means you trimmed the output: fix the copy, never weaken the check.
+for section in structured:  # every section the reviewer produced must survive
+    assert section in reviewer_result, f"dropped review section: {section}"
+assert len(reviewer_result.get("project_checks", [])) == len(structured.get("project_checks", [])), \
+    "project_checks count must equal what the reviewer emitted — never trim or sub-select"
+
+# Acceptance-criteria 1:1 check — the reviewer's acceptance_criteria array length
+# MUST equal the task's own criterion-line count. A mismatch means the reviewer
+# split, merged, added, or dropped criteria (the W1099 6/5 defect). Re-run the
+# reviewer with the canonical task criteria — NEVER truncate or pad the array to
+# force the count to match.
+task_criterion_lines = [c for c in (task["acceptance_criteria"] or "").split("\n") if c.strip()]
+assert len(structured["acceptance_criteria"]) == len(task_criterion_lines), \
+    "acceptance_criteria count must equal the task's criterion-line count — re-run the reviewer, do not truncate or pad"
+```
+
+The reviewer's response is already in your context, so no file read is needed; if the reviewer instead wrote its response to a file, use the `read` tool to load it first, then scan for the same fence.
 
 **Field mapping into `reviewer_result`:**
 
