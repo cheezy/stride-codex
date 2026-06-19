@@ -185,6 +185,8 @@ stride-enriching-tasks           ← WHEN a task has empty key_files/testing_str
 
 Agents are invoked as subagents based on task complexity — see the `stride-subagent-workflow` skill's decision matrix.
 
+The `stride-creating-tasks`, `stride-enriching-tasks`, and `stride-workflow` skills also document the optional `technical_details` task field — a free-form JSON object (no fixed keys) for any extra technical context (data shapes, gotchas, decisions, links). It is optional everywhere and is **not** one of the five review_queue-scored fields, so a blank value is never a scoring gap.
+
 ## Hook Execution
 
 **Codex CLI has no automatic hook interception.** The agent must execute `.stride.md` hooks directly by reading the file and running each command via shell.
