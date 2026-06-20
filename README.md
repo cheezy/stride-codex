@@ -187,6 +187,8 @@ Agents are invoked as subagents based on task complexity — see the `stride-sub
 
 The `stride-creating-tasks`, `stride-enriching-tasks`, and `stride-workflow` skills also document the optional `technical_details` task field — a free-form JSON object (no fixed keys) for any extra technical context (data shapes, gotchas, decisions, links). It is optional everywhere and is **not** one of the five review_queue-scored fields, so a blank value is never a scoring gap.
 
+(v1.19.0+) The `stride-creating-tasks` and `stride-creating-goals` skills document the optional `created_by_agent` field — set it to the plugin's own agent name (`"Codex CLI"`, the same value sent as `agent_name` on claim/complete) so the `/agents` feed attributes the creating agent instead of a `?`. It is create-only and forbidden on `PATCH`, and the server propagates a batch goal's value to every nested child task.
+
 ## Hook Execution
 
 **Codex CLI has no automatic hook interception.** The agent must execute `.stride.md` hooks directly by reading the file and running each command via shell.
