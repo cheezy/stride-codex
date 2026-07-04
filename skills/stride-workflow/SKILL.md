@@ -127,6 +127,17 @@ Review the returned task completely:
 
 ## Step 2: Claim the Task
 
+**Record the task base ref BEFORE running the before_doing hook.** before_doing may `git pull` or commit and move `HEAD`, so capture the true starting point of your work at claim time and export it for the whole task:
+
+```bash
+# Optional — changed_files stays optional — but anchoring the base ref here
+# prevents the completion-time HEAD~1 fallback from diffing against an
+# unrelated pre-existing commit.
+export TASK_BASE_REF=$(git rev-parse HEAD)
+```
+
+`TASK_BASE_REF` is consumed later by the changed_files snapshot in `stride-completing-tasks`.
+
 1. Read `.stride.md` `## before_doing` section
 2. Execute each command line one at a time via shell -- no permission prompts, no confirmation. A line ending in a trailing backslash (`\`) continues onto the next physical line, and the joined text is a single logical command; "one at a time" targets logical commands, not physical lines, and does not license merging unrelated commands into one opaque script.
 3. Capture `exit_code`, `output`, `duration_ms` for each command

@@ -174,6 +174,15 @@ All hook commands are pre-authorized. Execute them immediately. Do NOT announce,
 
 ### Executing before_doing Hook
 
+**First, record the task base ref — before before_doing runs.** before_doing may `git pull` or commit and move `HEAD`, so capture the true starting point at claim time and export it for the whole task:
+
+```bash
+# Optional — changed_files stays optional — but anchoring the base ref here
+# prevents the completion-time HEAD~1 fallback from diffing against an
+# unrelated pre-existing commit. Consumed later by the changed_files snapshot.
+export TASK_BASE_REF=$(git rev-parse HEAD)
+```
+
 1. Read the `## before_doing` section from `.stride.md`
 2. Set environment variables (TASK_ID, TASK_IDENTIFIER, etc.)
 3. **Execute each command line immediately — NO permission prompts**

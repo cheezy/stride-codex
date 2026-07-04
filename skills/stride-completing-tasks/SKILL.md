@@ -434,6 +434,16 @@ bash -c 'source "${CAPTURE_SCRIPT:-$HOME/.stride-scripts/capture-changed-files.s
   > "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || true'
 ```
 
+**Base-ref warning.** The `${TASK_BASE_REF:-HEAD~1}` fallback applies only when
+`TASK_BASE_REF` is unset. Relying on the `HEAD~1` fallback diffs the working
+tree against whatever commit happens to sit one before `HEAD` — which may be an
+unrelated, pre-existing commit — so the snapshot can sweep in edits that were
+never part of this task. Set `TASK_BASE_REF=$(git rev-parse HEAD)` at **claim
+time** (see `stride-claiming-tasks` and `stride-workflow` Step 2), before
+before_doing runs, so the diff is anchored to the true start of your work.
+`changed_files` stays optional either way — an empty array is a valid
+completion; the base ref only makes a populated snapshot accurate.
+
 stride-codex does NOT ship a capture script of its own — Codex CLI has no
 plugin-side hook surface to host one, and the function body in
 [`stride/hooks/stride-hook.sh`](https://github.com/cheezy/stride/blob/main/hooks/stride-hook.sh)
