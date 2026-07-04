@@ -178,7 +178,7 @@ stride-enriching-tasks           ← WHEN a task has empty key_files/testing_str
 | Agent | Purpose |
 |-------|---------|
 | `task-explorer` | Explore key_files and patterns before implementation |
-| `task-reviewer` | Review changes against acceptance criteria before completion; emits a structured `reviewer_result` (schema 1.3) with `project_checks[]` (from a project-root `CODE-REVIEW.md`) and per-section testing_strategy/patterns/pitfalls/security_considerations verdicts — `security_considerations` is the fifth review_queue-scored field |
+| `task-reviewer` | Review changes against acceptance criteria before completion; emits a structured `reviewer_result` (schema 1.4) with `project_checks[]` (from a project-root `CODE-REVIEW.md`) and per-section testing_strategy/patterns/pitfalls/security_considerations verdicts — `security_considerations` is the fifth review_queue-scored field |
 | `task-enricher` | Populate sparse tasks (empty key_files/testing_strategy/verification_steps) before claiming |
 | `task-decomposer` | Break goals into dependency-ordered child tasks |
 | `hook-diagnostician` | Diagnose hook failures with prioritized fix plans |
