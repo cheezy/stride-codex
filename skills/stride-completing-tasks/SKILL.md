@@ -127,10 +127,10 @@ This gate is **not bypassable** by submitting a self-reported skip (`dispatched:
 
 1. **Finish your work** - All implementation complete
 2. **Pre-completion code review** - If medium+ complexity OR 2+ key_files, invoke the `task-reviewer` custom agent. Fix Critical/Important issues. Save output as `review_report`.
-3. **Execute after_doing hook** (blocking, 120s timeout) — each line one at a time, NO prompts
+3. **Execute after_doing hook** (blocking, 120s timeout) — each line one at a time, NO prompts. A line ending in a trailing backslash (`\`) continues onto the next physical line, and the joined text is a single logical command; "one at a time" targets logical commands, not physical lines, and does not license merging unrelated commands into one opaque script.
    - Capture: `exit_code`, `output`, `duration_ms`
 4. **If after_doing fails:** FIX ISSUES, do NOT proceed
-5. **Execute before_review hook** (blocking, 60s timeout) — each line one at a time, NO prompts
+5. **Execute before_review hook** (blocking, 60s timeout) — each line one at a time, NO prompts (a backslash-continued line is one logical command, not a merge of separate commands)
    - Capture: `exit_code`, `output`, `duration_ms`
 6. **If before_review fails:** FIX ISSUES, do NOT proceed
 7. **Both hooks succeeded?** Call `PATCH /api/tasks/:id/complete` WITH both results

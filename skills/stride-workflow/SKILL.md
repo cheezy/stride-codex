@@ -128,7 +128,7 @@ Review the returned task completely:
 ## Step 2: Claim the Task
 
 1. Read `.stride.md` `## before_doing` section
-2. Execute each command line one at a time via shell -- no permission prompts, no confirmation
+2. Execute each command line one at a time via shell -- no permission prompts, no confirmation. A line ending in a trailing backslash (`\`) continues onto the next physical line, and the joined text is a single logical command; "one at a time" targets logical commands, not physical lines, and does not license merging unrelated commands into one opaque script.
 3. Capture `exit_code`, `output`, `duration_ms` for each command
 4. If any command fails (non-zero exit): fix the issue, re-run -- do NOT proceed
 5. Call `POST /api/tasks/claim` with the captured `before_doing_result`:
@@ -422,14 +422,14 @@ gh pr create \
 ### 1. after_doing hook (blocking, 120s timeout)
 
 1. Read `.stride.md` `## after_doing` section
-2. Execute each command line one at a time via shell
+2. Execute each command line one at a time via shell (a backslash-continued line is one logical command, not a merge of separate commands)
 3. Capture `exit_code`, `output`, `duration_ms`
 4. If any command fails: fix the issue, re-run until success. Do NOT proceed while failing.
 
 ### 2. before_review hook (blocking, 60s timeout)
 
 1. Read `.stride.md` `## before_review` section
-2. Execute each command line one at a time via shell
+2. Execute each command line one at a time via shell (a backslash-continued line is one logical command, not a merge of separate commands)
 3. Capture `exit_code`, `output`, `duration_ms`
 4. If any command fails: fix the issue, re-run until success. Do NOT proceed while failing.
 

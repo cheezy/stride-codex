@@ -121,7 +121,7 @@ Before claiming any task, verify these files exist:
 3. **Review task details** - Read description, acceptance criteria, key files
 4. **Check task completeness** - If key_files is empty OR testing_strategy is missing OR verification_steps is empty, activate stride-enriching-tasks
 5. **Read .stride.md before_doing section** - Get the setup command
-6. **Execute before_doing hook** (blocking, 60s timeout) — Execute each line one at a time, NO permission prompts
+6. **Execute before_doing hook** (blocking, 60s timeout) — Execute each line one at a time, NO permission prompts (a backslash-continued line is one logical command, not a merge of separate commands)
    - Capture: `exit_code`, `output`, `duration_ms`
 7. **If before_doing fails:** FIX ISSUES, do NOT proceed
 8. **Hook succeeded?** Call `POST /api/tasks/claim` WITH hook result
