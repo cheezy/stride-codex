@@ -147,10 +147,13 @@ Review the returned task completely:
 
 **Hook capture pattern:**
 ```bash
-START_TIME=$(date +%s%3N)
+# date +%N is GNU-only (BSD/macOS date lacks it); use python3 for portable
+# milliseconds, falling back to whole-second date when python3 is unavailable.
+now_ms() { python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )); }
+START_TIME=$(now_ms)
 OUTPUT=$(timeout 60 bash -c '<command>' 2>&1)
 EXIT_CODE=$?
-END_TIME=$(date +%s%3N)
+END_TIME=$(now_ms)
 DURATION=$((END_TIME - START_TIME))
 ```
 
@@ -528,8 +531,21 @@ When the just-completed task is the **final child of a parent goal**, the server
 
 1. **Detect**: Inspect the `hooks` array in the `/complete` or `/mark_reviewed` response payload. If any entry has `name == "after_goal"`, the after_goal lifecycle has fired.
 2. **Read**: Read the `## after_goal` section from `.stride.md`. If the section is missing, the rest of this path is a clean no-op — skip steps 3-5 and rely on the server's grace-window worker.
-3. **Export**: Set the `GOAL_*` env vars (`GOAL_ID`, `GOAL_IDENTIFIER`, `GOAL_TITLE`, `GOAL_DESCRIPTION`) plus `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME` from the response's `hook.env` block.
-4. **Execute**: Run each command line in the `## after_goal` section via the platform's shell tool. Capture `exit_code` (the last command's exit code), `output` (combined stdout+stderr from all commands), and `duration_ms` (wall-clock total).
+3. **Export**: Set the `GOAL_*` env vars (`GOAL_ID`, `GOAL_IDENTIFIER`, `GOAL_TITLE`, `GOAL_DESCRIPTION`) plus `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME` from the response's `hook.env` block. Also set `HOOK_TIMEOUT_MS` from the after_goal entry's `timeout` field (milliseconds) so the Execute step's `timeout` wrapper honors the real server value instead of the 60s fallback.
+4. **Execute**: Run each command line in the `## after_goal` section via the platform's shell tool, wrapped in a `timeout` derived from the server-supplied `hook.timeout` (the after_goal entry's `timeout` field, in milliseconds; fall back to 60s if absent). Capture `exit_code` (the last command's exit code), `output` (combined stdout+stderr from all commands), and `duration_ms` (wall-clock total):
+
+```bash
+# date +%N is GNU-only; use python3 for portable ms (whole-second date fallback)
+now_ms() { python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )); }
+# hook.timeout from the after_goal entry is in ms; convert to whole seconds, default 60s
+AFTER_GOAL_TIMEOUT=$(( ${HOOK_TIMEOUT_MS:-60000} / 1000 ))
+START_TIME=$(now_ms)
+OUTPUT=$(timeout "$AFTER_GOAL_TIMEOUT" bash -c '<after_goal commands>' 2>&1)
+EXIT_CODE=$?
+END_TIME=$(now_ms)
+DURATION_MS=$((END_TIME - START_TIME))
+```
+
 5. **POST**: Forward the captured result to the server:
 
 ```bash

@@ -180,10 +180,13 @@ All hook commands are pre-authorized. Execute them immediately. Do NOT announce,
 4. Capture the results:
 
 ```bash
-START_TIME=$(date +%s%3N)
+# date +%N is GNU-only (BSD/macOS date lacks it); use python3 for portable
+# milliseconds, falling back to whole-second date when python3 is unavailable.
+now_ms() { python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )); }
+START_TIME=$(now_ms)
 OUTPUT=$(timeout 60 bash -c 'git pull origin main && mix deps.get' 2>&1)
 EXIT_CODE=$?
-END_TIME=$(date +%s%3N)
+END_TIME=$(now_ms)
 DURATION=$((END_TIME - START_TIME))
 ```
 
@@ -318,7 +321,8 @@ POST /api/tasks/claim
 #    Then running hook afterward
 
 # Execute before_doing hook first
-   START_TIME=$(date +%s%3N)
+   # date +%N is GNU-only; use python3 for portable ms (whole-second date fallback)
+   START_TIME=$(python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )))
    OUTPUT=$(timeout 60 bash -c 'git pull && mix deps.get' 2>&1)
    EXIT_CODE=$?
    # ...capture results

@@ -204,10 +204,13 @@ All hook commands are pre-authorized. Execute them immediately. Do NOT announce,
 4. Capture the results:
 
 ```bash
-START_TIME=$(date +%s%3N)
+# date +%N is GNU-only (BSD/macOS date lacks it); use python3 for portable
+# milliseconds, falling back to whole-second date when python3 is unavailable.
+now_ms() { python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )); }
+START_TIME=$(now_ms)
 OUTPUT=$(timeout 120 bash -c 'mix test && mix credo --strict' 2>&1)
 EXIT_CODE=$?
-END_TIME=$(date +%s%3N)
+END_TIME=$(now_ms)
 DURATION=$((END_TIME - START_TIME))
 ```
 
@@ -221,10 +224,13 @@ DURATION=$((END_TIME - START_TIME))
 4. Capture the results:
 
 ```bash
-START_TIME=$(date +%s%3N)
+# date +%N is GNU-only (BSD/macOS date lacks it); use python3 for portable
+# milliseconds, falling back to whole-second date when python3 is unavailable.
+now_ms() { python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )); }
+START_TIME=$(now_ms)
 OUTPUT=$(timeout 60 bash -c 'gh pr create --title "$TASK_TITLE"' 2>&1)
 EXIT_CODE=$?
-END_TIME=$(date +%s%3N)
+END_TIME=$(now_ms)
 DURATION=$((END_TIME - START_TIME))
 ```
 
@@ -741,8 +747,21 @@ When the just-completed task is the **final remaining child of a parent goal**, 
 
 1. **Detect**: Inspect the response's `hooks` array. If any entry has `name == "after_goal"`, the after_goal lifecycle has fired.
 2. **Read**: Read the `## after_goal` section from `.stride.md`. If missing, skip steps 3-5 — the server's grace-window worker promotes the goal to Done automatically when no agent reports.
-3. **Export**: Set the `GOAL_*` env vars (and the standard `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME`) from the response's `hook.env` block before running commands. The server values are the single source of truth — never invent or derive them client-side.
-4. **Execute**: Run each command in the `## after_goal` section via the platform's shell tool. Capture `exit_code` (last command's exit), `output` (combined stdout+stderr), and `duration_ms` (wall-clock total).
+3. **Export**: Set the `GOAL_*` env vars (and the standard `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME`) from the response's `hook.env` block before running commands. Also set `HOOK_TIMEOUT_MS` from the after_goal entry's `timeout` field (milliseconds) so the Execute step's `timeout` wrapper honors the real server value instead of the 60s fallback. The server values are the single source of truth — never invent or derive them client-side.
+4. **Execute**: Run each command in the `## after_goal` section via the platform's shell tool, wrapped in a `timeout` derived from the server-supplied `hook.timeout` (the after_goal entry's `timeout` field, in milliseconds; fall back to 60s if absent). Capture `exit_code` (last command's exit), `output` (combined stdout+stderr), and `duration_ms` (wall-clock total):
+
+```bash
+# date +%N is GNU-only; use python3 for portable ms (whole-second date fallback)
+now_ms() { python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )); }
+# hook.timeout from the after_goal entry is in ms; convert to whole seconds, default 60s
+AFTER_GOAL_TIMEOUT=$(( ${HOOK_TIMEOUT_MS:-60000} / 1000 ))
+START_TIME=$(now_ms)
+OUTPUT=$(timeout "$AFTER_GOAL_TIMEOUT" bash -c '<after_goal commands>' 2>&1)
+EXIT_CODE=$?
+END_TIME=$(now_ms)
+DURATION_MS=$((END_TIME - START_TIME))
+```
+
 5. **POST**: Forward the captured result to flip the parent goal to Done:
 
 ```bash
@@ -794,13 +813,14 @@ See `stride-workflow` SKILL.md Step 7 for the full hooks reference and Step 9 fo
 #    Then running hooks afterward
 
 # Execute after_doing hook first
-   START_TIME=$(date +%s%3N)
+   # date +%N is GNU-only; use python3 for portable ms (whole-second date fallback)
+   START_TIME=$(python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )))
    OUTPUT=$(timeout 120 bash -c 'mix test' 2>&1)
    EXIT_CODE=$?
    # ...capture results
 
    # Execute before_review hook second
-   START_TIME=$(date +%s%3N)
+   START_TIME=$(python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || echo $(( $(date +%s) * 1000 )))
    OUTPUT=$(timeout 60 bash -c 'gh pr create' 2>&1)
    EXIT_CODE=$?
    # ...capture results
