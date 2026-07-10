@@ -540,9 +540,31 @@ When the just-completed task is the **final child of a parent goal**, the server
 
 **Because stride-codex has no plugin hook script, the agent is responsible for the entire after_goal lifecycle.** Manual execution path:
 
-1. **Detect**: Inspect the `hooks` array in the `/complete` or `/mark_reviewed` response payload. If any entry has `name == "after_goal"`, the after_goal lifecycle has fired. The completion curls write the full response to the canonical file `${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json` (via `| tee`, with a `curl --output` fallback for `tee`-less shells — see `stride-completing-tasks`); if the echoed response was truncated in your context, `cat` that file to inspect the complete `hooks` array. The `.stride/` directory holds agent-local state and must be gitignored.
+1. **Detect (read the canonical file, not your context)**: The completion curls write the full response to the canonical file `${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json` (via `| tee`, with a `curl --output` fallback for `tee`-less shells — see `stride-completing-tasks`). Read the after_goal entry **and** its `hook.env` `GOAL_*` values from that file with `jq` — file-first, because your in-context copy of the response may be truncated — falling back to the response body still visible in your context only when the file is absent, empty, or not valid JSON. Re-read from the file rather than trusting env carried across shell turns. The `.stride/` directory holds agent-local state and must be gitignored.
+
+```bash
+RESP="${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"
+# File-first: trust the canonical capture only when present, non-empty, AND valid
+# JSON; otherwise fall back to the response body still visible in your context.
+if [ -s "$RESP" ] && jq -e . "$RESP" > /dev/null 2>&1; then
+  PAYLOAD_SRC="$RESP"
+else
+  PAYLOAD_SRC="${TMPDIR:-/tmp}/stride-in-context-response.json"  # fallback: the response you can see in context
+fi
+
+# Isolate the after_goal entry (empty when the lifecycle did not fire — not the
+# parent goal's last child, so skip steps 2-5).
+AFTER_GOAL_ENTRY=$(jq -c '.hooks[]? | select(.name == "after_goal")' "$PAYLOAD_SRC")
+if [ -n "$AFTER_GOAL_ENTRY" ]; then
+  GOAL_ID=$(printf '%s' "$AFTER_GOAL_ENTRY"         | jq -r '.hook.env.GOAL_ID')
+  GOAL_IDENTIFIER=$(printf '%s' "$AFTER_GOAL_ENTRY" | jq -r '.hook.env.GOAL_IDENTIFIER')
+  GOAL_TITLE=$(printf '%s' "$AFTER_GOAL_ENTRY"      | jq -r '.hook.env.GOAL_TITLE')
+  GOAL_DESCRIPTION=$(printf '%s' "$AFTER_GOAL_ENTRY" | jq -r '.hook.env.GOAL_DESCRIPTION')
+  HOOK_TIMEOUT_MS=$(printf '%s' "$AFTER_GOAL_ENTRY"  | jq -r '.hook.timeout // 60000')
+fi
+```
 2. **Read**: Read the `## after_goal` section from `.stride.md`. If the section is missing, the rest of this path is a clean no-op — skip steps 3-5 and rely on the server's grace-window worker.
-3. **Export**: Set the `GOAL_*` env vars (`GOAL_ID`, `GOAL_IDENTIFIER`, `GOAL_TITLE`, `GOAL_DESCRIPTION`) plus `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME` from the response's `hook.env` block. Also set `HOOK_TIMEOUT_MS` from the after_goal entry's `timeout` field (milliseconds) so the Execute step's `timeout` wrapper honors the real server value instead of the 60s fallback.
+3. **Export**: The `GOAL_*` vars (`GOAL_ID`, `GOAL_IDENTIFIER`, `GOAL_TITLE`, `GOAL_DESCRIPTION`) plus `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME` and `HOOK_TIMEOUT_MS` were read from the after_goal entry's `hook.env` / `timeout` fields in the Detect jq block above (extend the same `jq -r '.hook.env.<VAR>'` reads for `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME`). Export them before running commands so the Execute step's `timeout` wrapper honors the real server value instead of the 60s fallback. The server values in the file are the single source of truth — re-read them from the file, never derive them client-side.
 4. **Execute**: Run each command line in the `## after_goal` section via the platform's shell tool, wrapped in a `timeout` derived from the server-supplied `hook.timeout` (the after_goal entry's `timeout` field, in milliseconds; fall back to 60s if absent). Capture `exit_code` (the last command's exit code), `output` (combined stdout+stderr from all commands), and `duration_ms` (wall-clock total):
 
 ```bash
