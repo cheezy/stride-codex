@@ -329,8 +329,35 @@ curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
          {name: "after_doing", dispatched: true, duration_ms: 45678},
          {name: "before_review", dispatched: true, duration_ms: 2340}
        ]
-     }')"
+     }')" \
+  | tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"
 ```
+
+**Capture the response to the canonical file.** The `| tee` above writes the
+full, untruncated `/complete` response to
+`${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json` **and** passes it
+through to stdout, so you still see the response inline. Codex CLI has no
+plugin hook reading your stdout — the capture is a durable record **you** can
+`cat` when the echoed response is truncated in your own context, which is
+exactly what the manual after_goal detection step below needs to inspect the
+full `hooks` array. Ensure the directory exists first
+(`mkdir -p "${CLAUDE_PROJECT_DIR:-.}/.stride"`). The same capture applies to
+the `/mark_reviewed` curl in the `needs_review=true` path — when you invoke
+`/mark_reviewed`, pipe its response through the identical
+`| tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"` so
+after_goal detection works the same way after a review approval.
+
+**Portability — `tee`-less shells.** `tee` is the one blessed pipe here (it
+preserves stdout while writing the file). Where `tee` is unavailable, use
+`curl --output "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"`
+instead — the response then goes to the file only, not stdout — or skip
+capture entirely and re-fetch the task's after_goal status if you need it.
+
+**Gitignore `.stride/`.** The `.stride/` directory holds ephemeral,
+agent-local state (`.last-api-response.json`); it **must** be listed in the
+project's `.gitignore` so these files never land in a commit. (The
+changed-files snapshot `.stride-changed-files.json` is a separate project-root
+dotfile — give it its own `.gitignore` entry too.)
 
 The resulting request body has this shape (illustrative — populated values
 match the `--arg` / `--argjson` substitutions above):
@@ -755,7 +782,7 @@ When the just-completed task is the **final remaining child of a parent goal**, 
 
 **Because stride-codex has no plugin hook script, the agent is responsible for executing after_goal manually.** Five-step path:
 
-1. **Detect**: Inspect the response's `hooks` array. If any entry has `name == "after_goal"`, the after_goal lifecycle has fired.
+1. **Detect**: Inspect the response's `hooks` array. If any entry has `name == "after_goal"`, the after_goal lifecycle has fired. If the `/complete` (or `/mark_reviewed`) response was truncated in your context, `cat "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"` (written by the `| tee` capture in the API Request Format section above) to inspect the full `hooks` array.
 2. **Read**: Read the `## after_goal` section from `.stride.md`. If missing, skip steps 3-5 — the server's grace-window worker promotes the goal to Done automatically when no agent reports.
 3. **Export**: Set the `GOAL_*` env vars (and the standard `BOARD_*` / `COLUMN_*` / `AGENT_NAME` / `HOOK_NAME`) from the response's `hook.env` block before running commands. Also set `HOOK_TIMEOUT_MS` from the after_goal entry's `timeout` field (milliseconds) so the Execute step's `timeout` wrapper honors the real server value instead of the 60s fallback. The server values are the single source of truth — never invent or derive them client-side.
 4. **Execute**: Run each command in the `## after_goal` section via the platform's shell tool, wrapped in a `timeout` derived from the server-supplied `hook.timeout` (the after_goal entry's `timeout` field, in milliseconds; fall back to 60s if absent). Capture `exit_code` (last command's exit), `output` (combined stdout+stderr), and `duration_ms` (wall-clock total):
