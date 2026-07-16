@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed — the enrichment surface documented create and update bodies without their `task` root key (D151)
+
+`stride-enriching-tasks` documented submitting an enriched task with a bare body: `POST /api/tasks` carried `-d '{...enriched task JSON...}'` and no `agent_name`. The server requires a `{"task": {...}}` envelope and rejects a bare object with `422 Missing 'task' key`, so an agent following the enrichment skill literally built a rejected request and — once corrected by hand — created a task with no attribution fallback. The create example now shows the envelope with `"agent_name": "Codex CLI"` beside the `task` key, matching the Request Envelope section in `stride-creating-tasks` and the plain agent name this port already sends on claim and complete.
+
+The same file's `PATCH /api/tasks/:id` example was broken the same way and is fixed too — but its rule differs and the doc now says so: `PATCH` needs the identical `task` root key, yet takes **no** `agent_name`, because attribution is create-only and `created_by_agent` is forbidden on update. Conflating the two would have been its own defect.
+
+The `task-enricher` agent doc is deliberately **left unwrapped**: its JSON is the agent's return value for the orchestrator to submit, not a request body, so an envelope there would be wrong. It gains a note saying exactly that, and pointing at who does the wrapping.
+
+This surface was missed by goal G4687 (the fleet-wide `agent_name` rollout) because it sits outside that goal's tasks' `key_files` and outside both of their grep sweeps.
+
+### Backward compatibility
+
+Fully backward compatible. Documentation/skill-text only — no hook logic, `.stride.md`, env-var, or `.stride_auth.md` change. The documented shapes are corrected to what the server has always required; nothing that previously worked stops working.
+
+### Release
+
+No release is cut by this entry — it is staged under `[Unreleased]` for the next release to finalize.
+
+### Source
+
+D151 — follow-up to goal G4687; the gap was recorded by the W1684 reviewer as out of scope at the time. Kanban `task_controller.ex` is the contract of record: `create/2` reads `agent_name` beside the `task` key, `update/2` requires `task` and reads no `agent_name`.
+
 ## [1.25.0] - 2026-07-16
 
 Create-payload `agent_name` port (**W1686 — mirrors canonical stride W1684**): documents a top-level `agent_name` on every create request so agent attribution survives a forgotten `created_by_agent`. Feature minor (1.24.0 → 1.25.0). Every change is documentation/skill-text only — no hook logic, `.stride.md`, env-var matrix, or wire-shape change (stride-codex has no hook script).
