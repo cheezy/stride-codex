@@ -4,9 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.25.0] - 2026-07-16
 
-Create-payload `agent_name` port (**W1686 — mirrors canonical stride W1684**): documents a top-level `agent_name` on every create request so agent attribution survives a forgotten `created_by_agent`. Every change is documentation/skill-text only — no hook logic, `.stride.md`, env-var matrix, or wire-shape change (stride-codex has no hook script). No release is cut here: W1687 owns the version bump, tag, and the dual-repo release.
+Create-payload `agent_name` port (**W1686 — mirrors canonical stride W1684**): documents a top-level `agent_name` on every create request so agent attribution survives a forgotten `created_by_agent`. Feature minor (1.24.0 → 1.25.0). Every change is documentation/skill-text only — no hook logic, `.stride.md`, env-var matrix, or wire-shape change (stride-codex has no hook script).
 
 ### Added — every documented create payload carries a top-level `agent_name` (W1686)
 
@@ -20,9 +20,13 @@ The skill's complete example was a bare task object, but `POST /api/tasks` requi
 
 Fully backward compatible, and safe to ship ahead of the server. No `.stride.md`, hook, env-var, or `.stride_auth.md` change. Unknown top-level keys are ignored by older servers, so sending `agent_name` before kanban D137 reaches production is a no-op. `created_by_agent` guidance is unchanged and still highest precedence — the new param is a fallback, never a replacement.
 
+### Release
+
+Bump `.codex-plugin/plugin.json` to `1.25.0`, tag `v1.25.0`, and cut the GitHub release; re-vendor and release `stride-codex-marketplace` (README plugin-table version + RELEASE.md catalog validator).
+
 ### Source
 
-W1686 (mirrors canonical stride W1684; kanban D137 ships the server half).
+W1686 (mirrors canonical stride W1684, released as `stride` v1.37.0); W1687 cut this release. Kanban D137 ships the server half.
 
 ## [1.24.0] - 2026-07-14
 
