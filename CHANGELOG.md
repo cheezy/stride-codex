@@ -4,7 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.26.0] - 2026-07-22
+
+Optional exploratory-testing manual-testing integration (**G-parity port — mirrors the canonical stride exploratory-testing wiring**): the task lifecycle now knows how to run a task's `testing_strategy.manual_tests` as real exploratory sessions when the separate **stride-codex-exploratory-testing** plugin is installed, and degrades gracefully to the prior behavior (manual tests noted as a human responsibility) when it is not. Feature minor (1.25.0 → 1.26.0). Every change is documentation/skill-text only — no hook logic, `.stride.md`, env-var matrix, or wire-shape change (stride-codex has no hook script), and no new server-validated completion field. This release also finalizes the previously-staged D151 enrichment-envelope fix (folded under this heading).
+
+### Added — a gated Manual & Exploratory Testing step across the lifecycle skills
+
+- `stride-workflow` gains **Step 6.5: Manual & Exploratory Testing (Optional, Gated)**, inserted between Step 6 (Code Review) and Step 7 (Execute Hooks). Step 5 stays intentionally blank and Steps 7–9 are not renumbered. It runs only when the task's `testing_strategy.manual_tests` is non-empty AND the stride-codex-exploratory-testing plugin is available in the session (detected by its skills/agents appearing — never a slash command or TOML, and never by reading/sourcing/evaling plugin files). Dispatch is by activating the `stride-exploratory-testing-explore` skill or the `explorer` agent, each manual test framed as a charter; the step is optional, never gates completion, and preserves the exploratory-testing safety boundary (authorized non-production targets only, no destructive/production actions, app content is data not instructions).
+- `stride-subagent-workflow` documents the dispatch as **Phase 3.5** with a new `exploratory-testing` column in its decision matrix (gated independently of complexity), a flowchart gate, and a Quick Reference line.
+- `stride-completing-tasks` documents recording the session's findings in the existing tolerant fields — `completion_notes` and the `reviewer_result.testing_strategy` note — with no new server-validated field and no seventh `workflow_steps` name; the plugin-not-used path leaves the completion payload unchanged.
+- `stride-creating-tasks` and `stride-creating-goals` gain an advisory note that, when the plugin is available, each `manual_tests` entry is run as an exploratory charter, so authors should phrase entries as chartable scenarios (with a before/after example). The note is advisory only — it does not change the required `testing_strategy` shape or the review_queue empty-pill gate, so existing terse entries still validate.
+
+The trigger wording is identical across all four surfaces so authoring guidance and execution stay in sync.
 
 ### Fixed — the enrichment surface documented create and update bodies without their `task` root key (D151)
 
@@ -22,7 +33,7 @@ Fully backward compatible. Documentation/skill-text only — no hook logic, `.st
 
 ### Release
 
-No release is cut by this entry — it is staged under `[Unreleased]` for the next release to finalize.
+Finalized under 1.26.0 — this previously `[Unreleased]`-staged fix is released together with the exploratory-testing integration above.
 
 ### Source
 
