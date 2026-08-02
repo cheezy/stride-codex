@@ -204,6 +204,8 @@ mkdir -p .stride
 git rev-parse HEAD > .stride/task-base-ref
 
 # Record which paths were ALREADY dirty, staged, or untracked at claim time.
+# This block is mirrored in `stride-workflow` Step 2 — keep the two in sync;
+# an edit here needs the matching edit there.
 # These are not lines you wrote, and nothing else can tell them apart later:
 # git blame reports a pre-claim edit and your own uncommitted edit identically
 # as "Not Committed Yet", and an after_doing that stages everything commits
