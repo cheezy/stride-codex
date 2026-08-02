@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.30.0] - 2026-08-02
+
+Ports the stride-side exploratory-testing integration updates (goal G397: W1991, W1992, W1993) — severity alignment and the fail-closed escalation policy, the non-interactive dispatch guard, an explicit session budget with an enumerated environment context, richer recording, gitignore guidance, and the optional hardening sub-step — each re-grounded where the reference cites machinery this port does not have.
 
 ### Added — exploratory severity mapping and the escalation policy (W1991)
 
