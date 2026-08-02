@@ -815,7 +815,7 @@ When manual testing was performed via the **stride-codex-exploratory-testing** p
 
 **Hard constraints (do not violate):**
 
-- **No new server-validated field.** Do NOT introduce a new top-level completion key (e.g. `manual_testing_result`, `exploratory_findings`) — reuse `completion_notes` and `reviewer_result.testing_strategy.note`. The strict-completion-validation contract stays intact; no new required fields are added, and nothing here relaxes an existing one.
+- **No new server-validated field.** Do NOT introduce a new top-level completion key (e.g. `manual_testing_result`, `exploratory_findings`) — reuse `completion_notes`, `reviewer_result.testing_strategy.note`, and the one-line `completion_summary` mirror — all three already exist. The strict-completion-validation contract stays intact; no new required fields are added, and nothing here relaxes an existing one.
 - **No seventh `workflow_steps` name.** The vocabulary stays exactly six — `explorer`, `planner`, `implementation`, `reviewer`, `after_doing`, `before_review`. Manual/exploratory testing does NOT get its own `workflow_steps` entry.
 
 ### Severity mapping
