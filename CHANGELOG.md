@@ -14,6 +14,18 @@ The prompt now states that on a `"failed"` section verdict `note` is **REQUIRED*
 
 Producer-side only: the server-side check in `Kanban.Tasks.CompletionValidation.ReviewContract` is unchanged, and no port was accommodated by weakening it.
 
+### Fixed — planner precedence: the decision matrix is the sole decision point (D232, propagating D221)
+
+This port carried the same ambiguity D221 fixed in the canonical plugin: the `stride-workflow` Step 3 decision matrix row `small, 2+ key_files` says Plan = Skip, while Branch C prose independently said "If medium+ OR 3+ key_files OR 3+ acceptance criteria lines: Outline your implementation approach" — two separately-satisfiable planner triggers with no stated precedence. The same conflict pattern existed for the Explore and Review columns (`stride-workflow` Step 6, `stride-subagent-workflow` Phases 1–3, and `stride-completing-tasks`' pre-completion review item), plus drifted narrower "medium+"-only restatements in the flowcharts and quick-reference cards. Measured consequence in canonical: two runners on identically-shaped tasks resolved the collision differently and wrote different skip reasons into `workflow_steps` telemetry.
+
+The fix mirrors canonical's D221 resolution: the Step 3 matrix now states it is the **sole decision point** for its columns, and every restatement — Branch C's planner item, Step 6's review trigger, the three `stride-subagent-workflow` "When:" lines and its matrix preamble, `stride-completing-tasks`' review item, and the flowchart/quick-reference glosses — reads its matrix column with "**Read the column; do not re-derive the condition here** (D221)" instead of re-deriving a condition. A small task carrying 3+ key_files or 3+ acceptance-criteria lines remains a mis-labelling signal to record in completion notes, never an independent planner trigger. Resolved toward the matrix (Plan = Skip for `small, 2+ key_files`), so no planner dispatch is added to the most common task shape.
+
+Recorded verification grep (should return only row definitions, D221 history, and matrix-agreeing glosses — never a rule that could fire independently of the matrix):
+
+```
+grep -rniE "if medium|medium\+ OR|medium or large, OR|3\+ (key_files|criteria|acceptance)|2\+ key_files" --include="*.md" skills/ agents/
+```
+
 ## [1.30.0] - 2026-08-02
 
 Ports the stride-side exploratory-testing integration updates (goal G397: W1991, W1992, W1993) — severity alignment and the fail-closed escalation policy, the non-interactive dispatch guard, an explicit session budget with an enumerated environment context, richer recording, gitignore guidance, and the optional hardening sub-step — each re-grounded where the reference cites machinery this port does not have.
