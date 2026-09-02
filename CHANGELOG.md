@@ -4,6 +4,123 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added — the Codex hook surface, and a loop-state record on completion (W2141)
+
+This port had no `hooks/` directory at all. Everything Stride knew about a
+session's progress lived in the agent's own compliance, which is precisely the
+thing a gate cannot depend on. W2141 gives the port a hook surface and puts one
+artifact on it.
+
+**The record.** A successful `PATCH /api/tasks/:id/complete` now writes
+`.stride/.loop-state.json` carrying four keys — the completed `identifier`,
+`needs_review` taken verbatim from the API response as a real JSON boolean, an
+ISO-8601 UTC `completed_at`, and the `session_id`. Any claim removes the file,
+successful or not. The path matches the Claude Code, Gemini and Copilot ports
+exactly, because one checkout may be driven by more than one of them.
+
+The hook writes this, never the agent. An agent-written marker is exactly as
+skippable as the instruction it replaces, so having the hook write it closes
+the omission direction: an agent cannot simply forget to leave a record.
+
+It is worth being precise about what that does and does not buy, because the
+stronger claim is tempting and wrong. The hook observes the same shell the
+agent drives, so it resists **omission**, not **forgery** — the routing
+discriminator is the command text and the payload is that command's own
+stdout, so a command that merely looks like a completion and prints a
+well-formed body would produce a record, and an agent can delete the file it
+just caused to be written. That is inherent to any file-based gate observed
+from inside the shell it is observing. Binding the record to a server-supplied
+value the agent cannot mint, and having the gate re-confirm it against the
+API, is the way to close those directions; it is not in this task's scope, and
+the claim here is scoped to match what the artifact actually delivers.
+
+**What it refuses to do.** The write is atomic — staged in the destination
+directory, then renamed — and never fatal: a completion never fails because the
+record could not be written, since this is a gate input rather than a
+correctness dependency. Diagnostics go to stderr only; the script writes
+nothing to stdout, ever, and always exits 0.
+
+Two symlink refusals sit alongside those guards, and one has an
+operator-visible consequence. `mkdir -p` succeeds silently when `.stride`
+already exists as a symlink to a directory, which would stage and rename the
+record inside the link target — a directory the hook never created — so both
+the writer and the claim-side clear refuse a symlinked `.stride`, and the
+writer additionally refuses a symlink at the record path itself (`-f` follows
+a link, so it would otherwise pass the regular-file gate). The consequence
+worth knowing: **a refused clear leaves a stale completion record**, which is
+the one direction this design calls dangerous, so that refusal is announced on
+stderr rather than passed over silently. Case 1z7 covers write-through,
+delete-through, and the symlinked record path.
+
+`needs_review` is read only from the response of the call being hooked. It is
+NOT resolved through `.stride/.last-api-response.json`, and that omission is
+the sharp edge of this task rather than an oversight. That file survives across
+calls, and the Codex skills tee every `/complete` response into it — so a
+canonical-file-first reader handed a truncated or 422 body would silently
+resolve the *previous* claim's payload, which carries both required fields at
+the right types, and record a completion that never happened. The equivalent
+bug cost the Claude Code implementation a review round. Test 1w pins both
+halves of the guard: no executable line names the cache, and a truncated body
+sitting next to a valid cached response still records nothing.
+
+**Registration.** `hooks/hooks.json` registers a single `PostToolUse` handler on
+the `Bash` matcher, `async: false`, `timeout: 60`. Each of those was checked
+against the Codex hooks documentation rather than copied from a sibling port,
+and two would have been wrong if they had been: the matcher for shell
+operations is `Bash`, not the `shell` tool name this port's own tool-name
+mapping uses; and `timeout` is in **seconds**, so Gemini's `300000` would have
+been three and a half days. `async: false` is stated explicitly because an
+async handler cannot apply control effects — it matters for the Stop gate that
+follows, and changing it later costs a fresh trust approval.
+
+No `Stop` entry is registered here. That is W2142's, and it must be ADDED as a
+sibling key rather than by editing this one.
+
+**Installation.** `install.sh` and `install.ps1` now copy `hooks/`, and so do
+the README's two manual-installation blocks — without that the surface would
+have been inert, since none of the three copied anything but skills, agents and
+`AGENTS.md`.
+
+There are two install shapes and they differ in one way worth stating plainly.
+A **plugin-bundled** install needs nothing: `hooks/hooks.json` sits at the
+default bundled path and Codex loads it, with `${PLUGIN_ROOT}` set. The
+installers, however, perform a **loose `.agents/` install**, which is not a
+plugin bundle — `.agents/hooks/` is not a scanned location and `${PLUGIN_ROOT}`
+is not set — so on that path the handler must be registered once by hand with
+an absolute path. Both installers now print that snippet with the real install
+path filled in, the README documents it under "Registering the hook", and the
+troubleshooting list leads with it rather than with the `${PLUGIN_ROOT}`
+expansion, which is only a candidate cause on the bundled path. `.codex-plugin/plugin.json` deliberately
+gains no `hooks` key: `hooks/hooks.json` is the default bundled path and
+already resolves, so adding an unvalidated key to that manifest would risk
+plugin load for no gain. `.gitignore` now ignores `.stride/`, which both
+installers had been telling users to do while the repo itself did not.
+
+**Documentation.** Seven sentences asserting that Codex has no hook system are
+now false and are corrected — three in `README.md` and `AGENTS.md`, and four
+more in the skills the agent actually reads at runtime
+(`skills/stride-workflow/SKILL.md`, `skills/stride-completing-tasks/SKILL.md`). Codex shipped hooks in rust-v0.124.0. The manual
+`.stride.md` execution instructions around them are NOT changed and remain
+correct: this hook records loop state and never executes a section, so
+executing them is still the agent's job.
+
+**Known gap.** No `stride-hook.ps1` twin ships yet, so native Windows without a
+bash on `PATH` records no loop state. Git Bash and WSL run the `.sh` directly
+and are unaffected. The suite's cross-half byte-identity case is skipped for
+the same reason, and says so.
+
+`hooks/test-stride-hook.sh` is new and covers the surface end to end: the four
+unit behaviours, the claim/complete/claim cycle, truncation, 422, an unwritable
+`.stride/`, a directory at the record path, both symlink refusals, locale
+independence of the charset gate, argv-array commands, the tee'd command form,
+and two sessions sharing one checkout. It also guards the registration itself
+and the installer copy lines, so neither the hook's wiring nor its installation
+can regress silently. No assertion count is quoted here on purpose — the run
+reports its own total, and an inlined figure goes stale the moment a case is
+added.
+
 ## [1.32.0] - 2026-08-20
 
 ### Added — row precedence for the Step 3 matrix, and the `reason_code` skip vocabulary (W2110, D239)
