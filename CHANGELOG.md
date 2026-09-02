@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.33.1] - 2026-09-02
+
+### Documentation — state where Codex sits in the stop-hook capability matrix
+
+The fleet's port canon carries a `stop-hook-capability` rule: blocking a session
+end is a per-runtime capability, and a port must settle three things before
+wiring a gate — whether a session-end event can refuse at all, what value
+expresses the refusal, and what stops a refused stop from looping. The canon's
+own provenance notes that no port stated this matrix normatively; the drift
+check has been red on it across the fleet.
+
+Having just shipped a gate in 1.33.0, this port is the one that most owes the
+statement, so the README now carries it beside the canon anchor: Codex
+**blocks**, on `Stop`, via a JSON decision on stdout at exit 0, with **no
+runtime-supplied loop guard** — which is why `stride-stop-gate.sh` bounds itself.
+It also records why exit 2 is available here and deliberately unused (it is a
+warning only on Copilot's `agentStop`, so a gate resting on it silently no-ops
+there), and Codex's three quiet-failure conditions: `async: false`, trust-hash
+pinning, and a blank `reason` degrading a block into a FAILURE.
+
+Documentation only — no behaviour change, and the suite is unchanged at 545
+assertions. The four sibling ports still missing this anchor are out of scope
+here; this closes only `stride-codex` and its vendored catalog copy.
+
+### Release
+
+Bump `.codex-plugin/plugin.json` to `1.33.1`, tag `v1.33.1`, cut the GitHub
+release, then re-vendor and release `stride-codex-marketplace`.
+
+### Source
+
+Follow-up to G421, raised by the marketplace's own release gate: the port-canon
+drift check named the vendored copy of this plugin, and the fix belonged in the
+port rather than the copy.
+
 ## [1.33.0] - 2026-09-02
 
 ### Tested — the Stop gate's permit matrix (W2143)

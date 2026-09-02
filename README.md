@@ -290,6 +290,47 @@ stderr, or the block reason — and the call is bounded by
 `.stride/` must be gitignored — see step 1 of the installer's next steps; it
 holds the block counter as well as the loop-state record.
 
+### Where Codex sits in the stop-hook capability matrix
+
+<!-- canon:stop-hook-capability v1 -->
+
+Blocking a session end is a **per-runtime capability**, not one surface with one
+spelling across the fleet. Three things differ between runtimes, and a port must
+settle all three before wiring a gate: whether a session-end event exists that
+can refuse at all, what value expresses the refusal, and what stops a refused
+stop from looping. Codex CLI's answers:
+
+| | Codex CLI |
+|---|---|
+| State | **Blocks** — the event exists and its value is honoured |
+| Session-end event | `Stop` |
+| How a refusal is expressed | `{"decision":"block","reason":...}` on stdout at exit 0, or exit 2 with the prompt on stderr |
+| Loop guard | **None supplied by the runtime — the handler must bound itself** |
+
+**Exit 2 is not portable, which is why this port does not use it.** It blocks on
+Codex and Claude Code, is a retry on Gemini (whose `deny` reason returns as the
+agent's next prompt), and on Copilot's `agentStop` it is a *warning only* — the
+session ends anyway, with no error and nothing to distinguish it from a gate
+that correctly found no work. So `stride-stop-gate.sh` expresses its refusal as
+a JSON decision on stdout and no code path in it exits 2.
+
+**Codex adds three conditions of its own, each of which fails quietly rather
+than loudly:**
+
+- the handler must be declared **`async: false`** — an async handler runs and
+  then has its control effect discarded, so the gate would silently do nothing;
+- hook definitions are **trust-hash pinned**, so every edit to one needs
+  re-approval before it takes effect again;
+- a `block` whose `reason` is **blank degrades to a FAILURE** rather than a
+  block, and the session ends.
+
+**The portable shape, which this port implements:** emit the runtime's own JSON
+decision on stdout at exit 0, never rely on exit 2 to carry the refusal, give
+the decision a non-empty reason, and **self-limit** — bound the consecutive
+refusals in the gate's own state rather than trusting the runtime to. Codex
+supplies `stop_hook_active` on a re-firing stop and the gate honours it, but as
+a bonus only; the guarantee is its own persisted counter.
+
 ### Registering the hook
 
 There are two install shapes, and they differ here:
