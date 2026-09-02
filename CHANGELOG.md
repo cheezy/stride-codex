@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.33.0] - 2026-09-02
 
 ### Tested — the Stop gate's permit matrix (W2143)
 
@@ -371,6 +371,29 @@ and the installer copy lines, so neither the hook's wiring nor its installation
 can regress silently. No assertion count is quoted here on purpose — the run
 reports its own total, and an inlined figure goes stale the moment a case is
 added.
+
+### Release
+
+Bump `.codex-plugin/plugin.json` to `1.33.0`, tag `v1.33.0`, and cut the GitHub
+release; then re-vendor and release `stride-codex-marketplace` (README plugin-table
+version + the RELEASE.md catalog validator, port-canon check and secret scan).
+
+Note for anyone reading an older entry: some of them say this port "is not
+distributed through any marketplace, so there is no marketplace pin to update."
+**That is wrong and has been wrong for several releases.** It is true only of the
+*Claude Code* `stride-marketplace`; `stride-codex` has its own per-runtime catalog,
+`cheezy/stride-codex-marketplace`, which vendors this plugin under
+`plugins/stride-codex/` and must be synced and released alongside every plugin
+release. The catalog tags on its own sequence rather than mirroring this version,
+so its tag number runs ahead of the pin.
+
+### Source
+
+Goal G421 — port the loop gate to Codex CLI — and its three tasks: W2141 (the hook
+surface and the loop-state record), W2142 (the Stop-hook gate), W2143 (the gate's
+permit matrix). The Codex hook system this goal depends on has been stable since
+rust-v0.124.0; several statements in this port's own docs and skills asserting that
+Codex has no hook interception predated that release and are corrected here.
 
 ## [1.32.0] - 2026-08-20
 
