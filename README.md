@@ -59,6 +59,7 @@ cp stride-codex/AGENTS.md AGENTS.md
 # repo. -p preserves the executable bit on stride-hook.sh.
 mkdir -p .agents/hooks
 cp -p stride-codex/hooks/stride-hook.sh .agents/hooks/stride-hook.sh
+cp -p stride-codex/hooks/stride-stop-gate.sh .agents/hooks/stride-stop-gate.sh
 cp stride-codex/hooks/hooks.json .agents/hooks/hooks.json
 ```
 
@@ -75,6 +76,7 @@ Copy-Item stride-codex\AGENTS.md .\AGENTS.md
 # The hook surface. Only the two runtime files; the test script stays in the repo.
 New-Item -ItemType Directory -Force -Path .agents\hooks | Out-Null
 Copy-Item stride-codex\hooks\stride-hook.sh .agents\hooks\stride-hook.sh
+Copy-Item stride-codex\hooks\stride-stop-gate.sh .agents\hooks\stride-stop-gate.sh
 Copy-Item stride-codex\hooks\hooks.json .agents\hooks\hooks.json
 ```
 
@@ -228,12 +230,15 @@ The `stride-creating-tasks`, `stride-enriching-tasks`, and `stride-workflow` ski
 
 ### The Stride hook surface
 
-`hooks/hooks.json` registers one `PostToolUse` handler on the `Bash` matcher,
-running `hooks/stride-hook.sh post`. Codex discovers a plugin-bundled
+`hooks/hooks.json` registers **two** handlers: a `PostToolUse` handler on the
+`Bash` matcher running `hooks/stride-hook.sh post`, and a `Stop` handler
+running `hooks/stride-stop-gate.sh`. Codex discovers a plugin-bundled
 `hooks/hooks.json` by default, alongside `~/.codex/hooks.json`,
 `<repo>/.codex/hooks.json` and the `config.toml` `[hooks]` tables.
 
-The hook does exactly one thing, and deliberately nothing else:
+#### The recorder — `stride-hook.sh`
+
+It does exactly one thing, and deliberately nothing else:
 
 - After a **successful** `PATCH /api/tasks/:id/complete`, it writes
   `.stride/.loop-state.json` with four keys — `identifier`, `needs_review`
@@ -254,7 +259,36 @@ being hooked, never from `.stride/.last-api-response.json` (that file survives
 across calls, so a truncated or 422 response would otherwise inherit the
 previous claim's payload and record a completion that never happened).
 
-`.stride/` must be gitignored — see step 1 of the installer's next steps.
+#### The gate — `stride-stop-gate.sh`
+
+Fires on `Stop` and refuses to end a session while work demonstrably remains.
+It blocks in exactly **one** case: the loop-state record exists, its
+`needs_review` is the boolean `false`, and `GET /api/tasks/next` answers 200
+with a claimable identifier. A block is
+`{"decision":"block","reason":"..."}` on stdout with exit 0 — on a Stop event
+that does not reject anything, it forces the session to continue using the
+reason as the new instruction.
+
+**Everything else permits, and every failure permits** — no loop-state file, an
+unparseable record, a completion that needs review, an unreachable or non-200
+API, an unparseable body, no claimable task, an identifier that is not
+identifier-shaped, or a block counter that cannot be written. The gate fails
+open by construction: it is a nudge, and it must never be able to trap a
+session.
+
+It is bounded so it cannot wedge you. `.stride/.stop-gate-blocks` records at
+most **2** refusals per unfollowed completion; ending the session again past
+that budget simply permits. `STRIDE_ALLOW_STOP=1` skips the gate outright, and
+`STRIDE_STOP_GATE_MAX_BLOCKS` (digits only) changes the bound. The counter is
+written *before* the block is emitted, so a block that happened is always a
+block that was counted.
+
+The API token reaches only curl's `Authorization` header — never stdout,
+stderr, or the block reason — and the call is bounded by
+`--connect-timeout 3 --max-time 5`.
+
+`.stride/` must be gitignored — see step 1 of the installer's next steps; it
+holds the block counter as well as the loop-state record.
 
 ### Registering the hook
 
@@ -285,10 +319,26 @@ There are two install shapes, and they differ here:
             }
           ]
         }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "/absolute/path/to/.agents/hooks/stride-stop-gate.sh",
+              "async": false,
+              "timeout": 10
+            }
+          ]
+        }
       ]
     }
   }
   ```
+
+  `Stop` takes no `matcher` — it is not tool-scoped. Register it under the
+  `Stop` spelling only: a loader honouring a second spelling would fire the
+  gate twice and double-spend its block budget.
 
   Both installers print this snippet with your actual install path filled in.
 
@@ -297,9 +347,9 @@ Two operational notes:
 - **Trust-hash pinning.** Codex pins hook definitions by hash, so Codex
   prompts for approval on first use and again after any update that changes
   `hooks/stride-hook.sh` or `hooks/hooks.json`.
-- **Windows.** This port ships no `stride-hook.ps1` twin yet, so on native
-  Windows without a bash on `PATH` no loop state is recorded. Git Bash and WSL
-  run the `.sh` directly and are unaffected.
+- **Windows.** This port ships no `.ps1` twin for either hook, so on native
+  Windows without a bash on `PATH` no loop state is recorded and the Stop gate
+  never runs. Git Bash and WSL run the `.sh` files directly and are unaffected.
 
 If the hook never appears to fire, check these in order:
 

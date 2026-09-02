@@ -112,7 +112,7 @@ try {
     Write-Host "Installing hooks..."
     $hookSrcRoot = Join-Path $cloneDir 'hooks'
     $hookDest = Join-Path $InstallDir 'hooks'
-    foreach ($hookFile in @('stride-hook.sh', 'hooks.json')) {
+    foreach ($hookFile in @('stride-hook.sh', 'stride-stop-gate.sh', 'hooks.json')) {
         Copy-Item -Path (Join-Path $hookSrcRoot $hookFile) -Destination (Join-Path $hookDest $hookFile) -Force
     }
 
@@ -164,10 +164,14 @@ else {
     Write-Host "     Add this to ~\.codex\hooks.json:"
 }
 Write-Host ""
-Write-Host '       {"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{'
-Write-Host '         "type":"command","async":false,"timeout":60,'
-Write-Host ("         ""command"":""{0}/hooks/stride-hook.sh post""}}]}}]}}}}" -f ($InstallDir -replace '\\','/'))
+Write-Host '       {"hooks":{'
+Write-Host '         "PostToolUse":[{"matcher":"Bash","hooks":[{'
+Write-Host '           "type":"command","async":false,"timeout":60,'
+Write-Host ("           ""command"":""{0}/hooks/stride-hook.sh post""}}]}}]," -f ($InstallDir -replace '\\','/'))
+Write-Host '         "Stop":[{"hooks":[{'
+Write-Host '           "type":"command","async":false,"timeout":10,'
+Write-Host ("           ""command"":""{0}/hooks/stride-stop-gate.sh""}}]}}]}}}}" -f ($InstallDir -replace '\\','/'))
 Write-Host ""
 Write-Host "  5. Approve the hook when Codex prompts. Hook definitions are trust-hash"
 Write-Host "     pinned, so a fresh approval is required after any update that changes"
-Write-Host "     hooks/stride-hook.sh or hooks/hooks.json."
+Write-Host "     hooks/stride-hook.sh, hooks/stride-stop-gate.sh or hooks/hooks.json."

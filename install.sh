@@ -72,8 +72,9 @@ cp "$TMPDIR/stride-codex/agents/"*.md "$INSTALL_DIR/agents/"
 # by default, so without this copy the hook surface would be inert.
 echo "Installing hooks..."
 cp "$TMPDIR/stride-codex/hooks/stride-hook.sh" "$INSTALL_DIR/hooks/stride-hook.sh"
+cp "$TMPDIR/stride-codex/hooks/stride-stop-gate.sh" "$INSTALL_DIR/hooks/stride-stop-gate.sh"
 cp "$TMPDIR/stride-codex/hooks/hooks.json" "$INSTALL_DIR/hooks/hooks.json"
-chmod +x "$INSTALL_DIR/hooks/stride-hook.sh"
+chmod +x "$INSTALL_DIR/hooks/stride-hook.sh" "$INSTALL_DIR/hooks/stride-stop-gate.sh"
 
 # Copy AGENTS.md to project root if --project, or to global dir
 if [ "$MODE" = "project" ]; then
@@ -110,10 +111,14 @@ else
   echo "     Add this to ~/.codex/hooks.json:"
 fi
 echo ""
-echo '       {"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{'
-echo '         "type":"command","async":false,"timeout":60,'
-echo "         \"command\":\"$INSTALL_DIR/hooks/stride-hook.sh post\"}]}]}}"
+echo '       {"hooks":{'
+echo '         "PostToolUse":[{"matcher":"Bash","hooks":[{'
+echo '           "type":"command","async":false,"timeout":60,'
+echo "           \"command\":\"$INSTALL_DIR/hooks/stride-hook.sh post\"}]}],"
+echo '         "Stop":[{"hooks":[{'
+echo '           "type":"command","async":false,"timeout":10,'
+echo "           \"command\":\"$INSTALL_DIR/hooks/stride-stop-gate.sh\"}]}]}}"
 echo ""
 echo "  5. Approve the hook when Codex prompts. Hook definitions are trust-hash"
 echo "     pinned, so a fresh approval is required after any update that changes"
-echo "     hooks/stride-hook.sh or hooks/hooks.json."
+echo "     hooks/stride-hook.sh, hooks/stride-stop-gate.sh or hooks/hooks.json."
