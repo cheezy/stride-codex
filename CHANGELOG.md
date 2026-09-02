@@ -6,6 +6,155 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Tested — the Stop gate's permit matrix (W2143)
+
+A Stop gate's worst failure is not "failed to block" — it is "wedged the
+session". The coverage is weighted accordingly: the gate has 33 permit or
+silent exits against a single block, and this adds Test Group 3 to cover the
+ones W2142 left, taking the suite from 171 assertions to 544. The gate itself
+is unchanged; this is a test-only release.
+
+**The gap it closes.** The `000` arm of the HTTP-code branch had never
+executed. W2142's case for it stubs curl with a non-zero exit, which lands on
+the *empty response* guard one branch earlier — the two emit the same sentence,
+so the case passed while the arm it named stayed dark. Cases 3r and 3s now
+separate them, each asserting a precondition on its own stub (does it print
+nothing, or does it answer?) rather than on a shared needle.
+
+**The design problem, and why the cases look heavier than "assert the
+reason".** Five reason strings are emitted by more than one branch, and three
+more are substrings of one another — `not identifier-shaped` matches both the
+loop-state and the API identifier checks, `could not be parsed` matches both
+the loop-state and the API body checks. A case that greps a shared needle
+passes when the gate reaches the *wrong* branch. Every case therefore carries a
+second pin: a precondition asserted against the fixture itself (3f and 3g
+assert which parse guard their fixture fails and passes), a negative assertion
+(3j proves the presence guard fired by showing the *shape* reason absent), or
+the logged API-call count, which separates every pre-network branch (0 calls)
+from its post-network twin (1).
+
+**Two findings fell out of writing the cases**, both in code W2142 shipped and
+both failing closed, so neither is a hole:
+
+- A **bracketed IPv6 URL never reaches the loopback check at all.** The
+  resolver extracts with `grep -oE 'https?://[A-Za-z0-9._:/-]+'`, whose class
+  excludes `[` and `]`, so `http://[::1]:4000` yields no URL and the gate
+  permits with "no API URL or token could be resolved". The gate's
+  bracket-stripping code is therefore unreachable through the only producer of
+  that value.
+- A **userinfo URL is truncated to its userinfo.** `@` is likewise outside the
+  class, so `http://user@127.0.0.1/` extracts as `http://user`, and `user`
+  becomes the host and is refused as non-loopback. The `##*@` strip is
+  unreachable for the same reason.
+
+Case 3p2 pins what those URLs actually do; 3af pins that the now-dead
+extraction code is still present, in case the resolver is ever widened. The
+same shape explains the "no recognised scheme" arm, which no input can reach
+because the extraction can only ever emit a string that already begins
+`http://` or `https://`.
+
+**Six arms have no reachable fixture** and are pinned structurally instead,
+each with the reason recorded beside it: the two `-gt 64` length guards
+(unreachable behind a predicate that caps a valid identifier at 14
+characters), the scheme arm and the two extraction branches above, the `mkdir`
+arm (POSIX `mkdir -p` succeeds on an existing directory whatever its mode),
+and the read-back arm (the key and count are written from the same values they
+are read back with). The limit of that technique is stated rather than glossed:
+**a structural pin reds when a guard is deleted; it does not red when a guard
+is neutered in place**, and no fixture on this port can close that gap.
+
+**Fixture hygiene is enforced, not merely asserted.** A specialist security
+review pointed out that every case takes its project directory from a command
+substitution — `D=$(g2_proj)` — and a failed `mktemp -d` yields an *empty
+string* rather than an error. An empty project dir makes the gate fall back to
+`PROJECT_DIR="."`, which is the real checkout, whose `.stride_auth.md` holds a
+live token; an empty stub dir puts an empty element in `PATH`, which POSIX
+reads as the current directory. Neither was reachable as written — every case
+does supply a directory — but nothing stopped it. `g2_run`, `g3_run_env` and
+`g3_run_payload` now refuse an empty value and abort the suite, so the property
+case 3ah asserts is enforced at the point of use rather than checked once.
+
+Two smaller findings from the same review are fixed: case 3b built its
+restricted-PATH farm by symlinking the *real* `curl` and then overwriting it
+with the stub, and its companion assertion tested presence rather than
+identity — it now builds the farm without `curl` at all, as case 3l already
+did, and asserts the farm's `curl` IS the stub. And the ad-hoc probe fixtures
+left in the session scratchpad during development (44 throwaway directories,
+each with a fixture auth file carrying no real credential) were swept; the
+suite's own fixtures were already removed by its `EXIT` trap.
+
+**Every case was verified to fail when the behaviour it pins is removed.** The
+ledger is below. It ran in a disposable `git worktree` so the real gate could
+not be left mutated, with a no-op mutant as the harness control and an empty
+`git diff` as the ship gate afterwards. `M0` killing nothing is the control
+passing: it proves the harness is not reporting red for some unrelated reason.
+
+Two process notes, because both cost a re-run and both would have shipped a
+false result:
+
+- A first attempt was launched with `nohup ... &`, which returned immediately;
+  the runner treated the job as finished while it was still going, a second run
+  was started, and **two processes mutated the same worktree file and
+  interleaved into the same ledger.** The tell was `M0` — the no-op control —
+  reporting failures. The driver now takes a `mkdir` lock and refuses to start
+  beside a live run.
+- `M13` first reported killing nothing. That was **not** a coverage gap: its
+  `perl` substitution had an unescaped `$` and aborted, so the file was never
+  mutated and the suite was green for the obvious reason. A mutant that kills
+  no case is a finding to chase, never a row to accept — chasing this one is
+  the only reason the `\A`/`\z` anchors are known to be pinned at all.
+
+The table runs `M0`–`M43` with `M24` and `M38` absent: both were drafted as
+supersets of mutants already listed — `M24` deleted the whole HTTP-code block
+that `M21`/`M22`/`M23` cover arm by arm, and `M38` dropped `jq -s` from the
+loop-state reads, which `M6` already covers — so they were retired rather than
+run, and the ids were not renumbered. 42 rows, 42 mutants.
+
+| mutant | edit | cases that red |
+|---|---|---|
+| M0 | no-op (blank line) - harness control | **NONE — UNPINNED** |
+| M1 | delete the STRIDE_ALLOW_STOP hatch | 3a  |
+| M2 | delete the jq guard | 3b  |
+| M3 | neuter stop_hook_active | 3c  |
+| M4 | delete the .stride symlink guard | 2i 3d  |
+| M5 | drop reset_counter on the no-loop-state exit | 3e  |
+| M6 | neuter the loop-state single-document guard | 3f  |
+| M7 | neuter the loop-state object guard | 3g  |
+| M8 | neuter the needs_review type guard | 3h  |
+| M9 | neuter the needs_review==true early permit | 2g4 3i  |
+| M10 | delete the completed-identifier presence guard | 3j  |
+| M11 | delete the completed-identifier shape guard | 3k  |
+| M12 | loosen the predicate to 5 letters | 3k 3y  |
+| M13 | swap `\A`/`\z` for `^`/`$` | 2h2 |
+| M14 | delete the curl-available guard | 3l  |
+| M15 | drop the token half of the credentials guard | 3m  |
+| M16 | drop the URL half of the credentials guard | 3m 3p2 3q  |
+| M17 | accept any 127.* host | 3n  |
+| M18 | delete the non-loopback catch-all | 3o 3p2  |
+| M19 | delete the localhost allowlist arm | 3p  |
+| M20 | delete the empty-response guard | 2g2 3r  |
+| M21 | delete the 404 arm | 3t  |
+| M22 | delete the 000 arm | 3s  |
+| M23 | delete the other-code arm | 2g2 3u  |
+| M25 | neuter the API single-document guard | 3v  |
+| M26 | neuter the API object guard | 3w  |
+| M27 | delete the API identifier presence guard | 2g3 3x  |
+| M28 | delete the API identifier shape guard | 2h 2h2 3y  |
+| M29 | off-by-one the budget bound | 2d 3a 3z2 3z3  |
+| M30 | accept a non-numeric MAX_BLOCKS | 3z3  |
+| M31 | drop the 9-digit MAX_BLOCKS bound | 3z3  |
+| M32 | delete the counter symlink guard | 3aa  |
+| M33 | delete the counter regular-file guard | 3ab  |
+| M34 | ignore a failed counter write | 3af  |
+| M35 | read the LAST counter field instead of field two | 3z7  |
+| M36 | drop read_block_count's 9-digit bound | 3z7  |
+| M37 | name the completed identifier in the block reason | 2b  |
+| M39 | delete an over-64 guard (structural) | 3af  |
+| M40 | delete the scheme arm (structural) | 3af  |
+| M41 | delete the mkdir arm (structural) | 3af  |
+| M42 | delete the read-back arm (structural) | 3af  |
+| M43 | delete the userinfo strip (structural) | 3af  |
+
 ### Added — the Stop-hook gate (W2142)
 
 The loop-state record W2141 added is evidence with nothing yet reading it. This

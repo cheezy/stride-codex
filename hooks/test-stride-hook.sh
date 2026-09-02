@@ -6,9 +6,13 @@
 # a curl stub.
 #
 # Test Group 2 covers the Stop-hook gate (W2142) and introduces this file's
-# first curl stub, since the gate does make one bounded API call. The gate's
-# exhaustive permit matrix is W2143's; Group 2 carries only the block path and
-# the four permit conditions W2142's own acceptance criteria name.
+# first curl stub, since the gate does make one bounded API call. Group 2
+# carries the block path and the four permit conditions W2142's own acceptance
+# criteria name.
+#
+# Test Group 3 (W2143) covers the gate's remaining exits — the full permit
+# matrix — and strengthens several Group 2 cases that asserted an outcome
+# without pinning the branch that produced it. It reuses Group 2's fixtures.
 
 set -uo pipefail
 
@@ -655,7 +659,16 @@ else
 
   # $1=project dir $2=stub dir. stdout and stderr captured SEPARATELY so token
   # containment is provable per stream.
+  # Refuse an empty fixture directory rather than letting it degrade quietly.
+  # `exit 1` inside a function called at top level aborts the suite, so this is
+  # a hard stop, not a comment.
+  g2_guard() {
+    [ -n "${1:-}" ] || { echo "FATAL: empty fixture project dir — refusing to run against the real checkout" >&2; exit 1; }
+    [ -n "${2:-}" ] || { echo "FATAL: empty fixture stub dir — refusing to put cwd on PATH" >&2; exit 1; }
+  }
+
   g2_run() {
+    g2_guard "$1" "$2"
     printf '{"cwd":"%s","session_id":"g2","hook_event_name":"Stop"}' "$1" \
       | PATH="$2:$PATH" "$G2_BASH" "$STOP_GATE" > "$TMPDIR_TEST/g2.out" 2> "$TMPDIR_TEST/g2.err"
     G2_RC=$?
@@ -887,24 +900,694 @@ else
     "$(grep -cF '"Stop":[{"hooks":[{' "$PORT_ROOT/install.ps1" || true)"
 fi
 
-# W2142/W2143 SEAM — recorded so the next task's scope is unambiguous.
-# Group 2 above deliberately carries only the block path and the four permit
-# conditions W2142's own acceptance criteria name. W2143 adds the exhaustive
-# permit matrix: unparseable / non-object loop state, a non-boolean
-# needs_review, no jq, no curl, no URL or token, HTTP 404, HTTP 000, wider
-# non-200 breadth, unparseable / non-object API bodies, malformed identifiers
-# on BOTH sides — and note the boundaries to write are the ones the predicate
-# actually has: 1-4 letters and 1-10 digits, plus the 5-letter and 11-digit
-# rejections. The over-64-character cases and the bash-3.2 collation trap this
-# note used to charter are NO LONGER TESTABLE: the predicate is an Oniguruma
-# regex whose ranges are codepoint-based, and it caps a valid identifier at 14
-# characters, so the gate's -gt 64 guards are unreachable and no input can
-# exercise them. STRIDE_ALLOW_STOP, stop_hook_active
-# including that it spends no budget, the STRIDE_STOP_GATE_MAX_BLOCKS override
-# validation (notably the =off wedge), the counter symlink / non-regular-file /
-# non-persisting read-back permits, the cleartext-http loopback guard, the
-# unwritable-.stride permit, and a sweep asserting stdout is empty on every
-# permit path.
+
+# ============================================================
+# Test Group 3: the Stop gate's permit matrix (W2143)
+# ============================================================
+#
+# A Stop gate's worst failure is not "failed to block" — it is "wedged the
+# session". So the weighting here is deliberate: many permit cases against the
+# single block case Group 2 already carries.
+#
+# Group 2 covered the block path and the four permit conditions W2142's own
+# acceptance criteria named. This group covers EVERY remaining exit, and
+# strengthens several Group 2 cases that asserted an outcome without pinning
+# the branch that produced it.
+#
+# THE DESIGN PROBLEM, and why cases look heavier than "assert the reason":
+# five reason strings are emitted by more than one branch, and three more are
+# substrings of each other. A case that greps a shared needle passes when the
+# gate reaches the WRONG branch, which is precisely the edge case this task's
+# testing strategy names. Every case below therefore carries a second pin —
+# a precondition asserted on the fixture itself, a negative assertion, or the
+# logged API-call count, which separates pre-network branches (0) from
+# post-network ones (1).
+#
+# Fixtures are reused verbatim from Group 2 (bash functions stay in scope past
+# its `fi`, and both groups skip on the same jq condition). Case 3pre asserts
+# that rather than assuming it.
+
+echo ""
+echo "=== Test Group 3: the Stop gate's permit matrix (W2143) ==="
+
+if ! command -v jq > /dev/null 2>&1; then
+  echo "  SKIP: Test Group 3 (jq not available — the gate self-gates on jq)"
+else
+  # --- 3pre: the group's own preconditions ------------------------------
+  for G3_FN in g2_stub g2_proj g2_state g2_run g2_decision; do
+    assert_eq "3pre: Group 2 fixture $G3_FN is in scope" "yes" \
+      "$(command -v "$G3_FN" > /dev/null 2>&1 && echo yes || echo no)"
+  done
+  # Without the scrub at the head of Group 2, an ambient STRIDE_ALLOW_STOP=1
+  # sends every case down the escape hatch and EVERY permit assertion below
+  # passes vacuously.
+  assert_eq "3pre: the gate env knobs are unset, so no permit passes vacuously" "" \
+    "${STRIDE_ALLOW_STOP:-}${STRIDE_STOP_GATE_MAX_BLOCKS:-}${CODEX_PROJECT_DIR:-}${CLAUDE_PROJECT_DIR:-}"
+
+  # --- helpers ----------------------------------------------------------
+  # A restricted PATH containing ONLY the named binaries, so a case can prove
+  # the gate's behaviour when one is absent. PATH is set to the farm ALONE,
+  # never prepended. `bash` is admitted deliberately: the stub curl's shebang
+  # resolves bash THROUGH this PATH, and without it the stub cannot run at all
+  # and the case would permit for a reason unrelated to the binary under test.
+  g3_farm() {
+    local _d="$1"; shift
+    rm -rf "$_d"; mkdir -p "$_d"
+    local _b _p
+    for _b in "$@"; do
+      _p=$(command -v "$_b" 2>/dev/null) && ln -sf "$_p" "$_d/$_b"
+    done
+  }
+
+  # Run with a restricted PATH. env -i is stronger than unset. CODEX_PROJECT_DIR
+  # is mandatory: with an empty payload PROJECT_DIR falls back to "." and the
+  # case would be testing the cwd rather than the gate.
+  g3_run_env() {
+    g2_guard "$1" "$2"
+    printf '{}' | env -i CODEX_PROJECT_DIR="$1" PATH="$2" "$G2_BASH" "$STOP_GATE" \
+      > "$TMPDIR_TEST/g3.out" 2> "$TMPDIR_TEST/g3.err"
+    G2_RC=$?
+    G2_OUT=$(cat "$TMPDIR_TEST/g3.out")
+    G2_ERR=$(cat "$TMPDIR_TEST/g3.err")
+  }
+
+  # Run with a caller-supplied stdin document.
+  g3_run_payload() {
+    g2_guard "$1" "$2"
+    printf '%s' "$3" | PATH="$2:$PATH" "$G2_BASH" "$STOP_GATE" \
+      > "$TMPDIR_TEST/g3.out" 2> "$TMPDIR_TEST/g3.err"
+    G2_RC=$?
+    G2_OUT=$(cat "$TMPDIR_TEST/g3.out")
+    G2_ERR=$(cat "$TMPDIR_TEST/g3.err")
+  }
+
+  # Every permit asserts the same three things, so none can be forgotten on a
+  # case: exit 0, EMPTY STDOUT (a stray byte on fd 1 would read as a decision),
+  # and the FULL reason sentence.
+  g3_permit() {
+    assert_exit "$1: exits 0" 0 "$G2_RC"
+    assert_eq "$1: stdout is empty" "0" "$(printf '%s' "$G2_OUT" | wc -c | tr -d ' ')"
+    assert_contains "$1: reason" "$2" "$G2_ERR"
+  }
+
+  g3_permit_silent() {
+    assert_exit "$1: exits 0" 0 "$G2_RC"
+    assert_eq "$1: stdout is empty" "0" "$(printf '%s' "$G2_OUT" | wc -c | tr -d ' ')"
+    assert_eq "$1: stderr is empty too" "0" "$(printf '%s' "$G2_ERR" | wc -c | tr -d ' ')"
+  }
+
+  # Logged API calls. 0 vs 1 is what separates a pre-network branch from its
+  # post-network twin when both emit the same sentence.
+  g3_calls() { grep -c 'ARGS:' "$1/curl.log" 2>/dev/null || echo 0; }
+
+  G3_BLOCKY='{"data":{"id":1,"identifier":"W2145"}}'
+
+  # --- Pre-input --------------------------------------------------------
+
+  # 3a: the escape hatch. (mutation M1)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf 'W2141 1\n' > "$D/.stride/.stop-gate-blocks"
+  export STRIDE_ALLOW_STOP=1; g2_run "$D" "$STUB"; unset STRIDE_ALLOW_STOP
+  g3_permit "3a" "STRIDE_ALLOW_STOP=1 was set"
+  assert_eq "3a: makes no API call" "0" "$(g3_calls "$STUB")"
+  # The counter SURVIVES — every other pre-network permit calls reset_counter,
+  # so counter-survival is what pins this to the hatch specifically.
+  assert_eq "3a: the hatch spends and clears nothing" "present" \
+    "$([ -f "$D/.stride/.stop-gate-blocks" ] && echo present || echo absent)"
+  g2_run "$D" "$STUB"
+  assert_eq "3a: positive control — without the hatch the same fixture blocks" "block" "$(g2_decision)"
+
+  # 3b: no jq at all — silent. (mutation M2)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  FARM="$TMPDIR_TEST/farm-nojq"
+  # Built WITHOUT curl, with the stub linked in as the only one — matching how
+  # 3l builds its farm. Listing the real curl and then overwriting it would
+  # leave the one window in this group where a system binary could shadow it.
+  g3_farm "$FARM" bash cat head grep tr mkdir rm mv
+  ln -sf "$STUB/curl" "$FARM/curl"
+  assert_eq "3b: the farm really has no jq" "absent" \
+    "$([ -e "$FARM/jq" ] && echo present || echo absent)"
+  assert_eq "3b: it has bash" "yes" "$([ -e "$FARM/bash" ] && echo yes || echo no)"
+  # IDENTITY, not presence: this is what makes "the stub is genuinely a stub" a
+  # pinned property rather than an inference from the positive control.
+  assert_eq "3b: the only curl in the farm IS the stub" "$STUB/curl" \
+    "$(readlink "$FARM/curl" 2>/dev/null)"
+  g3_run_env "$D" "$FARM"
+  # Silence is the whole pin: delete the jq guard and the mutant fails NOISILY
+  # with "jq: command not found" on the loop-state read.
+  g3_permit_silent "3b"
+  assert_eq "3b: makes no API call" "0" "$(g3_calls "$STUB")"
+  g3_farm "$FARM" bash jq curl cat head grep tr mkdir rm mv
+  ln -sf "$STUB/curl" "$FARM/curl"
+  g3_run_env "$D" "$FARM"
+  assert_eq "3b: positive control — with jq the same farm blocks" "block" "$(g2_decision)"
+
+  # 3c: stop_hook_active short-circuits before anything else. (mutation M3)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  g3_run_payload "$D" "$STUB" "$(jq -nc --arg d "$D" '{cwd:$d,stop_hook_active:true,hook_event_name:"Stop"}')"
+  g3_permit_silent "3c"
+  assert_eq "3c: makes no API call" "0" "$(g3_calls "$STUB")"
+  # Spends no budget — the property that makes a re-firing stop free.
+  assert_eq "3c: writes no counter" "absent" \
+    "$([ -e "$D/.stride/.stop-gate-blocks" ] && echo present || echo absent)"
+  g3_run_payload "$D" "$STUB" "$(jq -nc --arg d "$D" '{cwd:$d,hook_event_name:"Stop"}')"
+  assert_eq "3c: positive control — without the field the same fixture blocks" "block" "$(g2_decision)"
+
+  # 3c2: the JSON STRING "true" is not the boolean true.
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  g3_run_payload "$D" "$STUB" "$(jq -nc --arg d "$D" '{cwd:$d,stop_hook_active:"true"}')"
+  assert_eq "3c2: a string stop_hook_active does not short-circuit" "block" "$(g2_decision)"
+
+  # 3c3: a malformed payload never becomes a permit, and CODEX_PROJECT_DIR
+  # takes precedence over the payload's .cwd.
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  export CODEX_PROJECT_DIR="$D"
+  g3_run_payload "$D" "$STUB" '{not json'
+  unset CODEX_PROJECT_DIR
+  assert_eq "3c3: an unparseable payload still blocks" "block" "$(g2_decision)"
+
+  # --- Local evidence ---------------------------------------------------
+
+  # 3d: a symlinked .stride. Strengthens 2i. (mutation M4)
+  D=$(g2_proj); OUT3=$(mktemp -d "$TMPDIR_TEST/g3out.XXXXXX"); g2_state "$D" W2141 false
+  mv "$D/.stride" "$D/.stride-real" && ln -s "$D/.stride-real" "$D/.stride"
+  STUB=$(g2_stub "$G3_BLOCKY" 200); g2_run "$D" "$STUB"
+  # The FULL phrase, not the bare word "symlink", which also matches the block
+  # counter's own symlink refusal (3aa). Zero calls separates this pre-network
+  # branch from that post-network one.
+  g3_permit "3d" ".stride is a symlink"
+  assert_eq "3d: makes no API call" "0" "$(g3_calls "$STUB")"
+
+  # 3e: no loop-state file — silent, and it CLEARS a stale counter.
+  # Strengthens 2g1. (mutation M5)
+  D=$(g2_proj); STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf 'W2141 1\n' > "$D/.stride/.stop-gate-blocks"
+  g2_run "$D" "$STUB"
+  g3_permit_silent "3e"
+  assert_eq "3e: makes no API call" "0" "$(g3_calls "$STUB")"
+  # reset_counter firing is the side effect unique to this silent exit.
+  assert_eq "3e: a stale counter is cleared" "absent" \
+    "$([ -e "$D/.stride/.stop-gate-blocks" ] && echo present || echo absent)"
+
+  # 3f: an unparseable loop state. Collision A, first half. (mutation M6)
+  for G3_BODY in '{"identifier":"W1"} {"identifier":"W2"}' 'not json at all' ''; do
+    D=$(g2_proj); STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '%s' "$G3_BODY" > "$D/.stride/.loop-state.json"
+    printf 'W2141 1\n' > "$D/.stride/.stop-gate-blocks"
+    # PRECONDITION names which guard this fixture is aimed at: it must FAIL the
+    # single-document check, so the type=="object" guard (3g) cannot be what
+    # fired. Nothing in the process output separates the two branches.
+    assert_eq "3f: the fixture fails the single-document guard" "1" \
+      "$(jq -e -s 'length == 1' "$D/.stride/.loop-state.json" > /dev/null 2>&1; [ $? -ne 0 ] && echo 1 || echo 0)"
+    g2_run "$D" "$STUB"
+    g3_permit "3f" "the loop-state file could not be parsed"
+    assert_eq "3f: makes no API call" "0" "$(g3_calls "$STUB")"
+    assert_eq "3f: clears the counter" "absent" \
+      "$([ -e "$D/.stride/.stop-gate-blocks" ] && echo present || echo absent)"
+  done
+
+  # 3g: a single document that is not an object. Collision A, second half.
+  # (mutation M7)
+  for G3_BODY in '[1,2]' '"W2141"' '42' 'null' 'true'; do
+    D=$(g2_proj); STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '%s' "$G3_BODY" > "$D/.stride/.loop-state.json"
+    # PRECONDITION: this fixture PASSES the single-document guard, so 3f's
+    # branch cannot be what fired. That assertion is the only honest pin —
+    # the two branches emit the identical sentence.
+    assert_eq "3g: the fixture passes the single-document guard" "0" \
+      "$(jq -e -s 'length == 1' "$D/.stride/.loop-state.json" > /dev/null 2>&1; echo $?)"
+    g2_run "$D" "$STUB"
+    g3_permit "3g" "the loop-state file could not be parsed"
+    assert_eq "3g: makes no API call" "0" "$(g3_calls "$STUB")"
+  done
+
+  # 3h: needs_review is missing or not a boolean. (mutation M8)
+  for G3_BODY in '{"identifier":"W2141"}' \
+                 '{"identifier":"W2141","needs_review":"false"}' \
+                 '{"identifier":"W2141","needs_review":0}' \
+                 '{"identifier":"W2141","needs_review":null}'; do
+    D=$(g2_proj); STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '%s' "$G3_BODY" > "$D/.stride/.loop-state.json"
+    g2_run "$D" "$STUB"
+    # The string "false" is the load-bearing fixture: a truthiness check would
+    # read it as a completion needing no review and BLOCK on a record the gate
+    # does not understand, so this reds on the decision, not the wording.
+    g3_permit "3h" "the loop-state file records no usable needs_review"
+    assert_eq "3h: makes no API call" "0" "$(g3_calls "$STUB")"
+  done
+
+  # 3i: needs_review true clears the counter. Strengthens 2g4. (mutation M9)
+  D=$(g2_proj); g2_state "$D" W2141 true; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf 'W2141 1\n' > "$D/.stride/.stop-gate-blocks"
+  g2_run "$D" "$STUB"
+  g3_permit "3i" "the completed task needs human review"
+  assert_eq "3i: clears the counter" "absent" \
+    "$([ -e "$D/.stride/.stop-gate-blocks" ] && echo present || echo absent)"
+
+  # 3j: no completed identifier at all. (mutation M10)
+  for G3_BODY in '{"needs_review":false}' \
+                 '{"identifier":5,"needs_review":false}' \
+                 '{"identifier":"","needs_review":false}'; do
+    D=$(g2_proj); STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '%s' "$G3_BODY" > "$D/.stride/.loop-state.json"
+    g2_run "$D" "$STUB"
+    g3_permit "3j" "the loop-state file records no identifier"
+    # THE PIN: delete the presence guard and all three fall through to the
+    # SHAPE guard and report a different sentence.
+    assert_eq "3j: and does not blame the shape" "0" \
+      "$(printf '%s' "$G2_ERR" | grep -c 'identifier-shaped' || true)"
+    assert_eq "3j: makes no API call" "0" "$(g3_calls "$STUB")"
+  done
+
+  # 3k: a malformed COMPLETED identifier. (mutation M11/M12)
+  for G3_ID in ABCDE1 W12345678901 W 2145 W-2141 W2141.x; do
+    D=$(g2_proj); STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '{"identifier":"%s","needs_review":false}' "$G3_ID" > "$D/.stride/.loop-state.json"
+    g2_run "$D" "$STUB"
+    # Substring trap: "not identifier-shaped" matches the API-side branch too.
+    # The word "completed" is one pin; zero API calls is the second, which the
+    # post-network twin can never satisfy.
+    g3_permit "3k" "the completed identifier is not identifier-shaped"
+    assert_eq "3k: '$G3_ID' does not blame the NEXT identifier" "0" \
+      "$(printf '%s' "$G2_ERR" | grep -c 'the next task identifier' || true)"
+    assert_eq "3k: makes no API call" "0" "$(g3_calls "$STUB")"
+  done
+
+  # 3k2: the positive half — the boundaries the predicate actually has.
+  # NOTE: lowercase 'w2145' IS accepted by [A-Za-z]. Recorded here as current
+  # behaviour, not as an endorsement; changing it is a separate decision.
+  for G3_ID in W1 D12 W2145 ABCD1234567890 w2145; do
+    D=$(g2_proj); STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '{"identifier":"%s","needs_review":false}' "$G3_ID" > "$D/.stride/.loop-state.json"
+    g2_run "$D" "$STUB"
+    assert_eq "3k2: a real identifier '$G3_ID' still blocks" "block" "$(g2_decision)"
+  done
+
+  # --- Network configuration --------------------------------------------
+
+  # 3l: curl absent. Unlike 3b this branch CAN report, so it must — asserting
+  # silence here would also pass on a crash. (mutation M14)
+  D=$(g2_proj); g2_state "$D" W2141 false
+  FARM="$TMPDIR_TEST/farm-nocurl"
+  g3_farm "$FARM" bash jq cat head grep tr mkdir rm mv
+  assert_eq "3l: the farm really has no curl" "absent" \
+    "$([ -e "$FARM/curl" ] && echo present || echo absent)"
+  assert_eq "3l: but does have jq and bash" "yes" \
+    "$([ -e "$FARM/jq" ] && [ -e "$FARM/bash" ] && echo yes || echo no)"
+  g3_run_env "$D" "$FARM"
+  g3_permit "3l" "curl is not available"
+  STUB=$(g2_stub "$G3_BLOCKY" 200); ln -sf "$STUB/curl" "$FARM/curl"
+  g3_run_env "$D" "$FARM"
+  assert_eq "3l: positive control — with curl the same farm blocks" "block" "$(g2_decision)"
+
+  # 3m: ONE site, TWO causes — pin each, or a mutant collapsing the OR to
+  # either single test survives. (mutations M15/M16)
+  for G3_HALF in url token none; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+    case "$G3_HALF" in
+      url)   printf '# f\n- **API URL:** `https://api.example.invalid`\n' > "$D/.stride_auth.md" ;;
+      token) printf '# f\n- **API Token:** `%s`\n' "$G2_TOKEN" > "$D/.stride_auth.md" ;;
+      none)  rm -f "$D/.stride_auth.md" ;;
+    esac
+    g2_run "$D" "$STUB"
+    g3_permit "3m" "no API URL or token could be resolved"
+    assert_eq "3m: ($G3_HALF) makes no API call" "0" "$(g3_calls "$STUB")"
+    assert_eq "3m: ($G3_HALF) the token reaches neither stream" "0" \
+      "$(printf '%s%s' "$G2_OUT" "$G2_ERR" | grep -c "$G2_TOKEN" || true)"
+  done
+
+  # 3n: cleartext http to a host that merely LOOKS loopback. (mutation M17)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf '# f\n- **API URL:** `http://127.evil.example`\n- **API Token:** `%s`\n' "$G2_TOKEN" > "$D/.stride_auth.md"
+  g2_run "$D" "$STUB"
+  # The reason interpolates the host, so the FULL strings differ between the
+  # two cleartext arms. Replacing the numeric check with a bare 127.* accept
+  # makes this fixture reach the network and BLOCK — red on the decision.
+  g3_permit "3n" "non-loopback host 127.evil.example"
+  assert_eq "3n: the token never goes on the wire" "0" "$(g3_calls "$STUB")"
+
+  # 3o: cleartext http to a plainly non-loopback host. (mutation M18)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf '# f\n- **API URL:** `http://api.example.invalid`\n- **API Token:** `%s`\n' "$G2_TOKEN" > "$D/.stride_auth.md"
+  g2_run "$D" "$STUB"
+  g3_permit "3o" "non-loopback host api.example.invalid"
+  assert_eq "3o: the token never goes on the wire" "0" "$(g3_calls "$STUB")"
+
+  # 3p: the loopback POSITIVE half. Without these, tightening the allowlist
+  # breaks every local-dev install and no case notices. Each entry exercises
+  # one line of the RFC 3986 extraction. (mutation M19)
+  # NOTE the bracketed-IPv6 and userinfo forms are NOT in this list, and that
+  # is a finding rather than an oversight — see 3p2.
+  for G3_URL in 'http://localhost:4000' 'http://127.0.0.1:4000' \
+                'http://127.0.0.1./' 'http://LOCALHOST/' \
+                'http://127.255.255.254/' 'https://api.example.invalid'; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '# f\n- **API URL:** `%s`\n- **API Token:** `%s`\n' "$G3_URL" "$G2_TOKEN" > "$D/.stride_auth.md"
+    g2_run "$D" "$STUB"
+    assert_eq "3p: '$G3_URL' is allowed on the wire" "block" "$(g2_decision)"
+  done
+
+  # 3p2: two URL forms the RESOLVER rejects before the loopback check ever
+  # runs, because its extraction charset [A-Za-z0-9._:/-] excludes '[', ']'
+  # and '@'. Both fail CLOSED — no token goes on the wire — but the gate's
+  # bracketed-IPv6 and userinfo-stripping code is consequently unreachable
+  # through the only producer of the URL. Pinned structurally in 3af.
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf '# f\n- **API URL:** `http://[::1]:4000`\n- **API Token:** `%s`\n' "$G2_TOKEN" > "$D/.stride_auth.md"
+  g2_run "$D" "$STUB"
+  # The brackets defeat the extraction entirely, so there is no URL at all.
+  g3_permit "3p2" "no API URL or token could be resolved"
+  assert_eq "3p2: a bracketed IPv6 URL puts nothing on the wire" "0" "$(g3_calls "$STUB")"
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf '# f\n- **API URL:** `http://user@127.0.0.1/`\n- **API Token:** `%s`\n' "$G2_TOKEN" > "$D/.stride_auth.md"
+  g2_run "$D" "$STUB"
+  # The '@' truncates the extraction to `http://user`, so the USERINFO becomes
+  # the host and is refused as non-loopback. Still fails closed.
+  g3_permit "3p2" "non-loopback host user"
+  assert_eq "3p2: a userinfo URL puts nothing on the wire" "0" "$(g3_calls "$STUB")"
+
+  # 3q: a non-http scheme is treated as NO URL rather than put on the wire.
+  # (Probed: it lands on the no-URL-or-token permit, not the scheme arm, which
+  # is unreachable and pinned structurally in 3af.)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf '# f\n- **API URL:** `ftp://api.example.invalid`\n- **API Token:** `%s`\n' "$G2_TOKEN" > "$D/.stride_auth.md"
+  g2_run "$D" "$STUB"
+  g3_permit "3q" "no API URL or token could be resolved"
+  assert_eq "3q: makes no API call" "0" "$(g3_calls "$STUB")"
+
+  # --- HTTP outcomes ----------------------------------------------------
+
+  # 3r: curl produced NOTHING. Collision B, first half. Strengthens 2g2.
+  # (mutation M20)
+  D=$(g2_proj); g2_state "$D" W2141 false
+  STUB=$(g2_stub "" 000 7); PROBE=$(g2_stub "" 000 7)
+  # A SEPARATE stub instance for the precondition, so probing it does not add
+  # a line to the run's curl.log and spoil the count.
+  assert_eq "3r: the stub really prints nothing" "yes" \
+    "$([ -z "$("$PROBE/curl")" ] && echo yes || echo no)"
+  g2_run "$D" "$STUB"
+  g3_permit "3r" "the API could not be reached, or the request timed out"
+  assert_eq "3r: one call was made" "1" "$(g3_calls "$STUB")"
+
+  # 3s: curl SUCCEEDED but reported code 000. Collision B, second half — and
+  # the gap this task exists to close: 2g2's stub exits non-zero, so it lands
+  # on 3r's branch and the literal `000)` arm had never executed.
+  # (mutation M22)
+  D=$(g2_proj); g2_state "$D" W2141 false
+  STUB=$(g2_stub "" 000 0); PROBE=$(g2_stub "" 000 0)
+  assert_eq "3s: the stub really answered" "yes" \
+    "$([ -n "$("$PROBE/curl")" ] && echo yes || echo no)"
+  g2_run "$D" "$STUB"
+  g3_permit "3s" "the API could not be reached, or the request timed out"
+  # Delete the `000)` arm and this reports "the API answered 000".
+  assert_eq "3s: and is not reported as an answered code" "0" \
+    "$(printf '%s' "$G2_ERR" | grep -c 'answered' || true)"
+  assert_eq "3s: one call was made" "1" "$(g3_calls "$STUB")"
+
+  # 3t: HTTP 404. Collision C, first half. The body is deliberately
+  # UNPARSEABLE — 404 exits before the body is read, so this is a fixture the
+  # empty-identifier branch can never claim. (mutation M21)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub 'not json at all' 404 0)
+  g2_run "$D" "$STUB"
+  g3_permit "3t" "no claimable task remains"
+  assert_eq "3t: and does not blame the body" "0" \
+    "$(printf '%s' "$G2_ERR" | grep -c 'could not be parsed' || true)"
+  assert_eq "3t: one call was made" "1" "$(g3_calls "$STUB")"
+
+  # 3u: every other non-200. 301 doubles as the redirect case — a redirect
+  # PERMITS rather than being followed, so no Authorization header is replayed
+  # to a new host. (mutation M23)
+  for G3_CODE in 301 401 403 429 502; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub '{}' "$G3_CODE" 0)
+    g2_run "$D" "$STUB"
+    g3_permit "3u" "the API answered $G3_CODE"
+    assert_eq "3u: ($G3_CODE) one call was made" "1" "$(g3_calls "$STUB")"
+  done
+
+  # 3v: a two-document API body. The needle must carry "API response" —
+  # "could not be parsed" also matches the loop-state branches. (mutation M25)
+  for G3_BODY in '{"data":{"identifier":"W2145"}} {"data":{"identifier":"W2146"}}' 'not json at all'; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BODY" 200 0)
+    g2_run "$D" "$STUB"
+    g3_permit "3v" "the API response could not be parsed"
+    assert_eq "3v: and does not blame the loop-state file" "0" \
+      "$(printf '%s' "$G2_ERR" | grep -c 'the loop-state file' || true)"
+    assert_eq "3v: one call was made" "1" "$(g3_calls "$STUB")"
+  done
+  # The security payoff: a concatenated body is how an attacker would smuggle
+  # an unvalidated string into the reason that becomes the next session's
+  # prompt. Neither identifier may reach stdout.
+  D=$(g2_proj); g2_state "$D" W2141 false
+  STUB=$(g2_stub '{"data":{"identifier":"W2145"}} {"data":{"identifier":"W2146"}}' 200 0)
+  g2_run "$D" "$STUB"
+  assert_eq "3v: neither concatenated identifier reaches stdout" "0" \
+    "$(printf '%s' "$G2_OUT" | grep -cE 'W2145|W2146' || true)"
+
+  # 3w: a single API document that is not an object. (mutation M26)
+  for G3_BODY in '[1,2]' '"W2145"' '42' 'true' 'null'; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BODY" 200 0)
+    # PRECONDITION: passes the single-document guard, so 3v's branch cannot be
+    # what fired — the same device as 3f/3g, one layer later.
+    assert_eq "3w: the body passes the single-document guard" "0" \
+      "$(printf '%s' "$G3_BODY" | jq -e -s 'length == 1' > /dev/null 2>&1; echo $?)"
+    g2_run "$D" "$STUB"
+    g3_permit "3w" "the API response was not an object"
+    assert_eq "3w: one call was made" "1" "$(g3_calls "$STUB")"
+  done
+
+  # 3x: 200 but no claimable identifier. Collision C, second half.
+  # (mutation M27)
+  for G3_BODY in '{"data":null}' '{}' '{"data":{}}' '{"data":{"identifier":""}}' '{"data":{"identifier":5}}'; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BODY" 200 0)
+    g2_run "$D" "$STUB"
+    g3_permit "3x" "no claimable task remains"
+    # First negative: removing the presence guard drops the value into the
+    # shape guard. Second: separates this from 404, whose fixture is
+    # unparseable and which never reads a body.
+    assert_eq "3x: does not blame the shape" "0" \
+      "$(printf '%s' "$G2_ERR" | grep -c 'identifier-shaped' || true)"
+    assert_eq "3x: and is not an answered code" "0" \
+      "$(printf '%s' "$G2_ERR" | grep -c 'answered' || true)"
+    assert_eq "3x: one call was made" "1" "$(g3_calls "$STUB")"
+  done
+
+  # 3y: a malformed API identifier. Strengthens 2h/2h2, which assert only the
+  # decision and use a needle the completed-identifier branch also satisfies.
+  # (mutation M28)
+  for G3_ID in ABCDE1 W12345678901 W 2145 '../../etc/passwd'; do
+    D=$(g2_proj); g2_state "$D" W2141 false
+    STUB=$(g2_stub "$(jq -nc --arg i "$G3_ID" '{data:{identifier:$i}}')" 200 0)
+    g2_run "$D" "$STUB"
+    g3_permit "3y" "the next task identifier is not identifier-shaped"
+    assert_eq "3y: '$G3_ID' does not blame the COMPLETED identifier" "0" \
+      "$(printf '%s' "$G2_ERR" | grep -c 'the completed identifier' || true)"
+    assert_eq "3y: one call was made" "1" "$(g3_calls "$STUB")"
+  done
+
+  # --- Counter and budget -----------------------------------------------
+
+  # 3z: the spent budget reports its OWN reason. Strengthens 2d, which asserts
+  # the block/block/permit sequence but never why the third permitted — any
+  # other branch would have satisfied it. (mutation M29)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  g2_run "$D" "$STUB"; g2_run "$D" "$STUB"; g2_run "$D" "$STUB"
+  g3_permit "3z" "the re-block budget for this completion is spent"
+
+  # 3z1..3z6: the MAX_BLOCKS validator. Each exports, runs, and unsets on its
+  # own line — an inline `VAR=x g2_run` leaks differently between bash 3.2 and
+  # 5.x, and the value must be exported to reach the child at all.
+  # =0 permits immediately and writes no counter.
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  export STRIDE_STOP_GATE_MAX_BLOCKS=0; g2_run "$D" "$STUB"; unset STRIDE_STOP_GATE_MAX_BLOCKS
+  g3_permit "3z1" "the re-block budget for this completion is spent"
+  assert_eq "3z1: and writes no counter" "absent" \
+    "$([ -e "$D/.stride/.stop-gate-blocks" ] && echo present || echo absent)"
+  # =1 honours a single block.
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  export STRIDE_STOP_GATE_MAX_BLOCKS=1
+  g2_run "$D" "$STUB"; Z1=$(g2_decision); g2_run "$D" "$STUB"; Z2=$(g2_decision)
+  unset STRIDE_STOP_GATE_MAX_BLOCKS
+  assert_eq "3z2: MAX_BLOCKS=1 blocks exactly once" "block permit" "$Z1 $Z2"
+  # THE WEDGE: unvalidated, `[ "$n" -gt off ]` errors with status 2, the `if`
+  # reads false, and an attempt to DISABLE the gate makes it block unbounded.
+  # The validator must ignore the value and fall back to the default of 2.
+  for G3_BAD in off -1 2x 1000000000; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+    export STRIDE_STOP_GATE_MAX_BLOCKS="$G3_BAD"
+    g2_run "$D" "$STUB"; Z1=$(g2_decision)
+    g2_run "$D" "$STUB"; Z2=$(g2_decision)
+    g2_run "$D" "$STUB"; Z3=$(g2_decision)
+    unset STRIDE_STOP_GATE_MAX_BLOCKS
+    assert_eq "3z3: MAX_BLOCKS='$G3_BAD' falls back to the default bound" "block block permit" "$Z1 $Z2 $Z3"
+  done
+  # A 9-digit value is honoured, and the only clean proof is that it reaches
+  # the block reason.
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  export STRIDE_STOP_GATE_MAX_BLOCKS=999999999; g2_run "$D" "$STUB"; unset STRIDE_STOP_GATE_MAX_BLOCKS
+  assert_eq "3z5: a 9-digit bound is honoured" "block" "$(g2_decision)"
+  assert_eq "3z5: and is reported in the reason" "1" \
+    "$(printf '%s' "$G2_OUT" | jq -r '.reason' | grep -c '999999999' || true)"
+
+  # 3z7: read_block_count's edge cases. Field TWO, not the last field.
+  # (mutations M35/M36)
+  for G3_CTR in 'W9999 2' 'W2141 x' 'W2141 3000000000' ''; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+    printf '%s\n' "$G3_CTR" > "$D/.stride/.stop-gate-blocks"
+    g2_run "$D" "$STUB"
+    assert_eq "3z7: counter '$G3_CTR' reads as a fresh budget" "block" "$(g2_decision)"
+  done
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  printf 'W2141 3 extra\n' > "$D/.stride/.stop-gate-blocks"
+  g2_run "$D" "$STUB"
+  assert_eq "3z7: a trailing field does not shift the count" "permit" "$(g2_decision)"
+  g3_permit "3z7" "the re-block budget for this completion is spent"
+
+  # 3aa: a DANGLING symlink at the counter path. [ -f ] follows a symlink, so
+  # without the -L guard the redirect would CREATE the link's target — which
+  # can sit anywhere the agent user can write. (mutation M32)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  ln -s "$D/outside-target" "$D/.stride/.stop-gate-blocks"
+  g2_run "$D" "$STUB"
+  g3_permit "3aa" "the block counter is a symbolic link"
+  assert_eq "3aa: the link target was never created" "absent" \
+    "$([ -e "$D/outside-target" ] && echo present || echo absent)"
+  # One call separates this post-network refusal from 3d's pre-network one.
+  assert_eq "3aa: one call was made" "1" "$(g3_calls "$STUB")"
+
+  # 3ab: a directory at the counter path. (mutation M33)
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+  mkdir "$D/.stride/.stop-gate-blocks"
+  g2_run "$D" "$STUB"
+  g3_permit "3ab" "the block counter is not a regular file"
+  assert_eq "3ab: one call was made" "1" "$(g3_calls "$STUB")"
+
+  # 3ac: the counter cannot be written. An unwritable .stride still permits
+  # rather than blocking uncounted — the anti-wedge guarantee.
+  # NOTE the second route to this same arm (a pre-existing staged temp) is NOT
+  # fixturable: the temp name embeds the gate's own PID. (mutation M34)
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "  SKIP: 3ac (running as root — a 0500 directory would still be writable)"
+  else
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G3_BLOCKY" 200)
+    g2_run "$D" "$STUB"
+    assert_eq "3ac: precondition — the same fixture blocks while writable" "block" "$(g2_decision)"
+    rm -f "$D/.stride/.stop-gate-blocks"
+    chmod 0500 "$D/.stride"
+    STUB=$(g2_stub "$G3_BLOCKY" 200)
+    g2_run "$D" "$STUB"
+    chmod 0700 "$D/.stride"
+    g3_permit "3ac" "the block count could not be recorded"
+    # Separates this from the read-back arm, which reports "did not persist".
+    assert_eq "3ac: and is not the read-back arm" "0" \
+      "$(printf '%s' "$G2_ERR" | grep -c 'did not persist' || true)"
+    # The loop state stayed readable, so the permit came from the WRITE.
+    assert_eq "3ac: one call was made, so it reached the counter write" "1" "$(g3_calls "$STUB")"
+    assert_eq "3ac: no staged temp survives" "0" \
+      "$(find "$D/.stride" -maxdepth 1 -name '.stop-gate-blocks.*' 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+
+  # --- Structural pins --------------------------------------------------
+  #
+  # Six arms have no reachable fixture. Each is pinned by asserting the arm is
+  # still PRESENT in the source, with the reason it cannot be exercised.
+  #
+  # THE HONEST LIMIT, stated rather than glossed: a structural pin reds when a
+  # guard is DELETED. It does NOT red when a guard is neutered in place, and no
+  # fixture on this port can close that gap.
+  #
+  # E12/E26 — the two `-gt 64` length guards. Unreachable behind the identifier
+  # predicate, which caps a valid identifier at 14 characters and permits
+  # first. The comment is pinned as well as the code, so loosening the
+  # predicate is a visible edit rather than a silent re-arming.
+  assert_eq "3af: both over-64 guards are still present" "2" \
+    "$(grep -c 'is longer than 64 characters' "$STOP_GATE" || true)"
+  assert_eq "3af: and both are still marked unreachable" "2" \
+    "$(grep -c 'UNREACHABLE behind oks' "$STOP_GATE" || true)"
+  # E17 — the defensive scheme arm. Unreachable because resolve_stride_api_url
+  # extracts with `grep -oE 'https?://...'`, so its output is either empty or
+  # begins http:// or https://; a non-http URL yields no match and lands on the
+  # no-URL-or-token permit instead (case 3q proves that).
+  assert_eq "3af: the defensive scheme arm is still present" "1" \
+    "$(grep -c 'has no recognised scheme' "$STOP_GATE" || true)"
+  # E30 — mkdir -p on an existing directory succeeds whatever its mode, and by
+  # this point .stride demonstrably exists. It must PERMIT, not fail closed.
+  assert_eq "3af: the mkdir arm is still present and permits" "1" \
+    "$(grep -c 'permit "the .stride directory could not be created"' "$STOP_GATE" || true)"
+  # E32/E33 — the mv arm needs a destination the regular-file guard already
+  # rejected; the read-back arm needs a count written and read through the same
+  # values to disagree, which the 9-digit validator prevents.
+  assert_eq "3af: the read-back arm is still present" "1" \
+    "$(grep -c 'the block count did not persist' "$STOP_GATE" || true)"
+  assert_eq "3af: both counter-write arms are still present" "2" \
+    "$(grep -c 'the block count could not be recorded' "$STOP_GATE" || true)"
+  # The bracketed-IPv6 and userinfo branches of the RFC 3986 host extraction
+  # are unreachable through resolve_stride_api_url, whose charset excludes
+  # '[', ']' and '@' — case 3p2 shows what those URLs actually do instead.
+  # Kept as a belt in case the extraction is ever widened.
+  assert_eq "3af: the IPv6 bracket extraction is still present" "1" \
+    "$(grep -c 'auth_part%%\\]\\*' "$STOP_GATE" || true)"
+  assert_eq "3af: the userinfo strip is still present" "1" \
+    "$(grep -cF '_auth_part##*@' "$STOP_GATE" || true)"
+
+  # --- Group hygiene ----------------------------------------------------
+
+  # 3ag: no env knob escaped a case. Every override above exports and unsets on
+  # its own line; this proves none leaked into the cases that followed.
+  assert_eq "3ag: no gate env knob leaked out of Group 3" "" \
+    "${STRIDE_ALLOW_STOP:-}${STRIDE_STOP_GATE_MAX_BLOCKS:-}${CODEX_PROJECT_DIR:-}${CLAUDE_PROJECT_DIR:-}"
+
+  # 3ah: fixture hygiene. Every project dir comes from g2_proj (mktemp under
+  # TMPDIR_TEST) and every farm run sets CODEX_PROJECT_DIR, so PROJECT_DIR can
+  # never fall back to "." and read the real checkout's own auth file. The one
+  # token constant stays deliberately NOT token-shaped.
+  assert_eq "3ah: the only fixture token is not token-shaped" "1" \
+    "$(printf '%s' "$G2_TOKEN" | grep -c '^NOT-A-REAL-TOKEN' || true)"
+  assert_eq "3ah: no fixture carries a stride-prefixed token value" "0" \
+    "$(grep -cE 'stride[_]dev[_]|stride[_]prod[_]' "$0" || true)"
+  G3_PROBE_DIR=$(g2_proj)
+  assert_eq "3ah: fixture project dirs live under the test tmpdir" "yes" \
+    "$([ "${G3_PROBE_DIR#"$TMPDIR_TEST"/}" != "$G3_PROBE_DIR" ] && echo yes || echo no)"
+fi
+
+# W2142/W2143 SEAM — CLOSED by W2143. Recorded so a later parity audit reads
+# the omissions as decisions rather than gaps.
+#
+# The gate has 33 permit/silent exits and 1 block. 27 are pinned behaviourally
+# in Groups 2 and 3; SIX have no reachable fixture and are pinned structurally
+# in case 3af, each with the reason:
+#   * the two `-gt 64` length guards — unreachable behind the identifier
+#     predicate, which caps a valid identifier at 14 characters and permits
+#     first;
+#   * the defensive "no recognised scheme" arm — unreachable because
+#     resolve_stride_api_url extracts with `grep -oE 'https?://...'`, so its
+#     output is either empty or already begins http:// or https://. A non-http
+#     URL therefore lands on the no-URL-or-token permit, which case 3q proves;
+#   * the mkdir arm — POSIX `mkdir -p` succeeds on an existing directory
+#     whatever its mode, and .stride demonstrably exists by that point;
+#   * the mv arm — reaching it needs a destination the regular-file guard has
+#     already rejected;
+#   * the read-back arm — the key and the count are written from the same
+#     values they are read back with, and the 9-digit bound cannot bite behind
+#     the MAX_BLOCKS validator.
+# A structural pin reds on DELETION of a guard. It does NOT red on a guard
+# neutered in place, and no fixture on this port can close that gap.
+#
+# One further arm has a second, unfixturable route: the counter write can also
+# fail on a pre-existing staged temp, but that name embeds the gate's own PID.
+# Case 3ac covers the reachable route and says so.
+#
+# The over-64 and bash-3.2 collation cases an earlier draft of this note
+# chartered remain untestable, and deliberately: the predicate is an Oniguruma
+# regex whose ranges are codepoint-based rather than collation-ordered.
+#
+# Lowercase `w2145` IS accepted by the predicate. Case 3k2 records that as
+# current behaviour, not as an endorsement; changing it is a separate decision.
+#
+# WHAT GENUINELY REMAINS, for a later task rather than this one:
+#   * no `.ps1` twin for either hook, so native Windows without bash gets
+#     neither the loop-state record nor the gate;
+#   * the live Codex registration is still UNVERIFIED — this suite invokes the
+#     scripts directly, which proves the script and never the registration.
 
 echo ""
 echo "============================================================"
