@@ -147,8 +147,16 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '
 # -o/-oX/-sSo/--output/--output= or > >> 1> >| &> >&2 **to a target that port
 # does not read** -- which, here and in stride-gemini, means any target at all.
 # Permitted in all three: a bare call, `tee`, every stderr-only redirect
-# (2> 2>> 2>&1 2>&2), a `>` or `-o` inside a quoted payload, and an endpoint
-# appearing only inside a redirect target.
+# (2> 2>> 2>&1 2>&2), a `>` or `-o` inside a quoted payload, and -- BELOW each
+# port's scan ceiling -- an endpoint appearing only inside a redirect target.
+#
+# That last one is the only entry here that depends on the ceiling, and it is
+# qualified rather than dropped because the dependence is uniform. Above the
+# ceiling no port has a blanked operator view to walk, so all three judge scope
+# on the raw text whole and all three therefore REFUSE the shape. Agreement
+# holds on both sides of the ceiling; what changes is the verdict, not which
+# ports share it. Any future port that blanks redirect targets above its own
+# ceiling would be the divergence, and would owe an entry below.
 #
 # The target qualifier in that first list is load-bearing, and an earlier
 # revision of this comment omitted it and so contradicted the paragraph below.

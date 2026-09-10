@@ -152,8 +152,10 @@ The paired cases exist so none of these can pass again.
 
 W2184 drove the three hardened guards over ONE corpus, which is the thing three
 green per-port suites structurally cannot do: it found **18 shapes where the
-ports disagreed**, twelve of them real defects and all but one of those here.
-Each was a shape this port PERMITTED while a sibling refused it:
+ports disagreed**, twelve of them real defects. Every one of the twelve involved
+this port — the list below is all of them — and three were a shape stride-copilot
+got wrong as well. Ten were shapes this port PERMITTED while a sibling refused
+them:
 
 - **`--remote-name-all`** — writes bodies to local files exactly as `-O` does,
   but the generic `--*` arm skipped it wholesale before the cluster arm could
@@ -168,14 +170,18 @@ Each was a shape this port PERMITTED while a sibling refused it:
   skipped including the redirect rule. The grouping characters are now
   neutralised length-preservingly and the compound keywords are skipped.
 
-And one shape it wrongly REFUSED: **an endpoint appearing only inside a redirect
-target** (`curl https://example.test/x > /tmp/api/tasks/9/complete`). The scope
-test now runs on raw text with redirect targets blanked, so the endpoint has to
-appear where a request could actually go.
+And the other two of the twelve went the other way — shapes it wrongly REFUSED.
+First, **an endpoint appearing only inside a redirect target**
+(`curl https://example.test/x > /tmp/api/tasks/9/complete`). The scope test now
+runs on raw text with redirect targets blanked, so the endpoint has to appear
+where a request could actually go — below the scan ceiling, which is the only
+place a blanked operator view exists to walk. Above it all three ports judge
+scope on the raw text whole and all three refuse the shape; that is agreement
+with a ceiling-dependent verdict, not a divergence, and the guard header says
+so.
 
-One ordering fix in the other direction: **`2>&2`** was refused, though a
-stderr-to-stderr redirect leaves the body on stdout. The stderr-only exemption
-is now tested before the `>&2` rule.
+Second, **`2>&2`** was refused, though a stderr-to-stderr redirect leaves the
+body on stdout. The stderr-only exemption is now tested before the `>&2` rule.
 
 After reconciliation the three ports agree on every shape in the corpus except
 six, which share a single deliberate cause now recorded in the guard header: a

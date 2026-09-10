@@ -2250,11 +2250,22 @@ else
   while [ "$G7_I2" -lt 1600 ]; do G7_HUGE2="$G7_HUGE2$G7_BIGP"; G7_I2=$((G7_I2 + 1)); done
   g7_case "7z21f: past the ceiling --remote-name-all is still refused" \
     "curl --remote-name-all $G7_URL/claim -d '{\"n\":\"$G7_HUGE2\"}'" deny
-  # And the whole-mode path must not lose scope: there the operator view is
-  # UNBLANKED, so a `>` inside a live payload would otherwise blank the URL out
-  # of the scope view and permit the call.
-  g7_case "7z21f: past the ceiling a > in the payload does not lose scope" \
-    "curl $G7_URL/claim -d '{\"n\":\"a > b $G7_HUGE2\"}' -o r.json" deny
+  # And the whole-mode path must not lose SCOPE. There the operator view is
+  # UNBLANKED, so every `>` in the command reads as a redirect operator -- and
+  # the scope pass blanks the token after one. Put a `>` at the end of an
+  # unquoted word and the token after it is the URL itself: the segment falls out
+  # of scope and the call is PERMITTED, on the one branch whose whole purpose is
+  # to over-refuse. Measured as a real false permit before the fix. Note the
+  # shape has to be `...\>` before the URL: a `>` inside the quoted payload is
+  # followed by the payload's own closing characters, so it blanks those and the
+  # URL survives -- which is why the first version of this case passed either
+  # way and proved nothing.
+  g7_case "7z21f: past the ceiling a bare > cannot blank the URL out of scope" \
+    "curl --data-urlencode n=a\\> $G7_URL/claim -d '{\"n\":\"$G7_HUGE2\"}' -o r.json" deny
+  # Below the ceiling the same shape is permitted, in all three ports alike: the
+  # scope walk cannot tell a literal `>` in an unquoted word from an operator.
+  # That is a uniform limitation, not a divergence, and it is recorded rather
+  # than pinned here -- pinning the permit would cement a hole as a contract.
 
   # --- 7z14: THE QUOTED URL. Every case above interpolates $G7_URL bare, and
   # that is not the shape this port documents -- skills/stride-completing-tasks
