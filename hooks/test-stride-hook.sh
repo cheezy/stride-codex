@@ -2209,6 +2209,53 @@ else
   assert_eq "7z13: and is not async" "false" \
     "$(jq -r '.hooks.PreToolUse[0].hooks[0].async' "$HOOKS_JSON" 2>/dev/null)"
 
+  # --- 7z21: CROSS-PORT RECONCILIATION (W2184) ----------------------------
+  # A matrix that drove all three hardened guards over one corpus found shapes
+  # this port PERMITTED while a sibling refused them, and two it refused that a
+  # sibling permitted. Every one of them is pinned here, because the matrix was a
+  # throwaway script and only the suite keeps a property from regressing.
+  g7_case "7z21a: --remote-name-all is refused"  "curl --remote-name-all $G7_URL/claim" deny
+  # An ALLOWLIST, not a five-name denylist: a closed list silently permitted
+  # every consumer nobody thought to name.
+  g7_case "7z21b: a pipe into python3 is refused" "curl $G7_URL/claim | python3 -m json.tool" deny
+  g7_case "7z21b: a pipe into xargs is refused"   "curl $G7_URL/claim | xargs echo"      deny
+  g7_case "7z21b: a pipe into cat is refused"     "curl $G7_URL/claim | cat"             deny
+  g7_case "7z21b: but tee still passes"           "curl $G7_URL/claim | tee r.json"      permit
+  # Shell wrappers: each put something other than curl in command position, so
+  # the whole segment was skipped -- the redirect rule included.
+  g7_case "7z21c: a command substitution does not hide -o" \
+    "RESP=\$(curl $G7_URL/claim -o x)" deny
+  g7_case "7z21c: nor a backtick substitution" \
+    "RESP=\`curl $G7_URL/claim -o x\`" deny
+  g7_case "7z21c: a subshell does not hide a redirect" \
+    "( curl $G7_URL/claim > f )" deny
+  g7_case "7z21c: a brace group does not hide -o" \
+    "{ curl $G7_URL/claim -o f; }" deny
+  g7_case "7z21c: an if-guarded curl does not hide -o" \
+    "if curl -sf $G7_URL/claim -o f; then echo ok; fi" deny
+  g7_case "7z21c: nor a while-guarded one" \
+    "while curl -sf $G7_URL/claim > f; do break; done" deny
+  g7_case "7z21c: and a wrapped safe call is still permitted" \
+    "if curl -sf $G7_URL/claim; then echo ok; fi" permit
+  # The two that went the other way: both were over-refusals.
+  g7_case "7z21d: 2>&2 is permitted"  "curl $G7_URL/claim 2>&2"   permit
+  g7_case "7z21d: but >&2 is refused" "curl $G7_URL/claim >&2"    deny
+  g7_case "7z21e: an endpoint only in a redirect target is out of scope" \
+    "curl https://example.invalid/x > /tmp/api/tasks/9/complete" permit
+  # Above the ceiling the option scan is a SECOND copy of the loop, and the
+  # first fix landed in only one of them -- so --remote-name-all was still
+  # permitted there. Any option added to one loop belongs in both.
+  G7_BIGP='All checks pass and the writer was rebuilt from scratch this afternoon. '
+  G7_HUGE2=""; G7_I2=0
+  while [ "$G7_I2" -lt 1600 ]; do G7_HUGE2="$G7_HUGE2$G7_BIGP"; G7_I2=$((G7_I2 + 1)); done
+  g7_case "7z21f: past the ceiling --remote-name-all is still refused" \
+    "curl --remote-name-all $G7_URL/claim -d '{\"n\":\"$G7_HUGE2\"}'" deny
+  # And the whole-mode path must not lose scope: there the operator view is
+  # UNBLANKED, so a `>` inside a live payload would otherwise blank the URL out
+  # of the scope view and permit the call.
+  g7_case "7z21f: past the ceiling a > in the payload does not lose scope" \
+    "curl $G7_URL/claim -d '{\"n\":\"a > b $G7_HUGE2\"}' -o r.json" deny
+
   # --- 7z14: THE QUOTED URL. Every case above interpolates $G7_URL bare, and
   # that is not the shape this port documents -- skills/stride-completing-tasks
   # /SKILL.md and the README both write

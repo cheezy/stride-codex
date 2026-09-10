@@ -142,11 +142,16 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '
 #
 # CROSS-PORT AGREEMENT, and the ONE place this port deliberately differs
 # (recorded by W2184, which drove all three hardened guards over one corpus).
-# On every other shape the three agree: -o/-oX/-sSo/--output/--output=/-O/
-# --remote-name/--remote-name-all, any pipe whose next stage is not `tee`, and
-# > >> 1> >| &> >&2 are refused in all three; a bare call, `tee`, every
-# stderr-only redirect (2> 2>> 2>&1 2>&2), and a `>` or `-o` inside a quoted
-# payload are permitted in all three.
+# On every other shape the three agree. Refused in all three: -O,
+# --remote-name, --remote-name-all, any pipe whose next stage is not `tee`, and
+# -o/-oX/-sSo/--output/--output= or > >> 1> >| &> >&2 **to a target that port
+# does not read** -- which, here and in stride-gemini, means any target at all.
+# Permitted in all three: a bare call, `tee`, every stderr-only redirect
+# (2> 2>> 2>&1 2>&2), a `>` or `-o` inside a quoted payload, and an endpoint
+# appearing only inside a redirect target.
+#
+# The target qualifier in that first list is load-bearing, and an earlier
+# revision of this comment omitted it and so contradicted the paragraph below.
 #
 # THE DIVERGENCE: stride-copilot PERMITS `-o`/`--output`/`>` when the target is
 # its canonical response file, and permits a transformer or redirect after a
@@ -415,7 +420,18 @@ codex_guard_redirect_kind() {
 codex_guard_segment_kind() {
   local _cg_raw="$1" _cg_seg="$2" _cg_mode="${3:-}" _cg_stage _cg_word _cg_first=1 _cg_curl=0 _cg_rest
 
-  codex_guard_routed_endpoint "$(codex_guard_scope_text "$_cg_raw" "$_cg_seg")" || return 0
+  # Scope is judged on raw text with redirect TARGETS blanked -- but only on the
+  # segmented path. On the whole-mode path `$_cg_seg` is the UNBLANKED command,
+  # so a `>` inside a live payload is indistinguishable from a real operator and
+  # the token after it would be blanked out of the scope view. If that token were
+  # the URL carrying the only endpoint, scope would be lost and the call
+  # PERMITTED -- a false permit on exactly the conservative path that must not
+  # have one. There, scope is judged on the raw text whole.
+  if [ "$_cg_mode" = "whole" ]; then
+    codex_guard_routed_endpoint "$_cg_raw" || return 0
+  else
+    codex_guard_routed_endpoint "$(codex_guard_scope_text "$_cg_raw" "$_cg_seg")" || return 0
+  fi
 
   if [ "$_cg_mode" = "whole" ]; then
     for _cg_word in $_cg_seg; do
@@ -427,6 +443,11 @@ codex_guard_segment_kind() {
     for _cg_word in $_cg_seg; do
       case "$_cg_word" in
         -O|--remote-name)          printf 'remote'; return 0 ;;
+        # The whole-mode loop is a SECOND copy of the option scan, and the W2184
+        # fix first landed only in the per-segment one -- so above the ceiling
+        # --remote-name-all was still permitted while both siblings refused it.
+        # Any option added to one of these loops belongs in both.
+        --remote-name-all)         printf 'remote'; return 0 ;;
         -o|--output)               printf 'flag';   return 0 ;;
         --output=*)                printf 'flag';   return 0 ;;
         --*)                       continue ;;
