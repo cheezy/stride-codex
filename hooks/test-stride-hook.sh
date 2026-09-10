@@ -412,11 +412,13 @@ b' "$G_CMD" "$G_OK")"
   assert_eq "1w: no executable line names the response cache" "0" \
     "$(grep -v '^[[:space:]]*#' "$HOOK_SCRIPT" | grep -c 'last-api-response' || true)"
   # 2 -> 3 in W2181: the claim pointer is a THIRD thing that must not be
-  # sourced from the cache, and it carries its own comment saying so. The count
-  # is raised rather than loosened to a >=1 test on purpose — an exact count is
-  # what makes a SILENTLY DELETED warning fail here, and that is the failure
-  # this case exists to catch.
-  assert_eq "1w: and the hazard is documented in a comment" "3" \
+  # sourced from the cache, and it carries its own comment saying so. 3 -> 4 in
+  # W2184: the cross-port agreement note is a FOURTH site, and it has to name the
+  # cache, because "this port refuses -o even to that file" is justified only by
+  # "this port refuses to read that file at all". The count is raised rather than
+  # loosened to a >=1 test on purpose — an exact count is what makes a SILENTLY
+  # DELETED warning fail here, and that is the failure this case exists to catch.
+  assert_eq "1w: and the hazard is documented in a comment" "4" \
     "$(grep -c '^[[:space:]]*#.*last-api-response' "$HOOK_SCRIPT" || true)"
   D=$(g_proj); mkdir -p "$D/.stride"
   # A perfectly valid PREVIOUS response sitting in the cache...

@@ -140,11 +140,32 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '
 # is the one place where behaviour parity required a DIFFERENT scope, not the
 # same one.
 #
+# CROSS-PORT AGREEMENT, and the ONE place this port deliberately differs
+# (recorded by W2184, which drove all three hardened guards over one corpus).
+# On every other shape the three agree: -o/-oX/-sSo/--output/--output=/-O/
+# --remote-name/--remote-name-all, any pipe whose next stage is not `tee`, and
+# > >> 1> >| &> >&2 are refused in all three; a bare call, `tee`, every
+# stderr-only redirect (2> 2>> 2>&1 2>&2), and a `>` or `-o` inside a quoted
+# payload are permitted in all three.
+#
+# THE DIVERGENCE: stride-copilot PERMITS `-o`/`--output`/`>` when the target is
+# its canonical response file, and permits a transformer or redirect after a
+# `tee` into it, because that port resolves a response FILE-FIRST and genuinely
+# reads the file back. This port refuses those shapes for ANY target, because it
+# reads the response off stdout alone -- and more than that, it is built to
+# REFUSE reading `.stride/.last-api-response.json` at all (see
+# own_call_response_payload below: that cache is live here, and a cross-call read
+# would record a completion that never happened). So the same command is safe
+# there and unsafe here, and the two verdicts are both correct.
+#
+# The mirror of that: `tee -a <that file>` is refused in stride-copilot, because
+# appending corrupts the single JSON document its Tier 1 parses, and permitted
+# here, because `tee -a` still passes the body through on stdout, which is all
+# this port reads. Do not "fix" either direction into agreement.
+#
 # The command text carries a Bearer token in every case the guard matches, so
 # NOTHING derived from it may reach a message, a log or a file. All four
 # messages below are literals selected by a `case`; none interpolates.
-
-CODEX_GUARD_TRANSFORMERS="jq head awk grep sed"
 
 # Above this many BYTES the scan goes stateless: quote blanking is skipped and
 # the raw text is judged as-is. That direction is deliberate — raw text is a
@@ -170,12 +191,20 @@ CODEX_GUARD_MAX_SCAN=100000
 # `env`-style assignment. `tee` reached this way is the blessed pipe; the same
 # name appearing as an ARGUMENT ("curl ... -d @tee.json") is not a stage and
 # never reaches here.
+# W2184 added the compound-keyword skips. The cross-port matrix found that
+# `RESP=$(curl ... -o x)`, a backtick substitution, `( curl ... > f )`,
+# `{ curl ... -o f; }` and `if`/`while`-guarded calls were all PERMITTED here
+# while the sibling ports refused them: each puts something other than curl in
+# command position, so the whole segment was skipped -- the redirect rule with
+# it. The caller additionally neutralises the grouping characters.
 codex_guard_cmd_word() {
   local _cg_stage="$1" _cg_word
   for _cg_word in $_cg_stage; do
     case "$_cg_word" in
+      '') continue ;;
       *=*) continue ;;
       env|command|builtin|exec|nohup|time) continue ;;
+      if|then|elif|else|fi|while|until|do|done|'!') continue ;;
       *) printf '%s' "${_cg_word##*/}"; return 0 ;;
     esac
   done
@@ -279,6 +308,37 @@ codex_guard_split_pairs() {
   ' 2>/dev/null
 }
 
+# Raw text with every REDIRECT TARGET blanked, for the scope test only.
+#
+# W2184 added this. Without it `curl https://example.test/x > /tmp/api/tasks/9/complete`
+# is refused: the segment carries curl and a redirect, and a routed endpoint
+# appears -- but only inside the redirect's own target, which says nothing about
+# what was called. A sibling port permitted it, so the two disagreed. The
+# endpoint has to appear somewhere a request could actually go.
+#
+# Target spans are located in the BLANKED view and blanked in the RAW view at the
+# same offsets, which stays sound because every substitution is a space per byte.
+codex_guard_scope_text() {
+  CODEX_SC_RAW="$1" CODEX_SC_BL="$2" LC_ALL=C awk '
+    BEGIN {
+      raw = ENVIRON["CODEX_SC_RAW"]; bl = ENVIRON["CODEX_SC_BL"]
+      n = length(bl); out = raw; i = 1
+      while (i <= n) {
+        if (substr(bl, i, 1) != ">") { i++; continue }
+        j = i + 1
+        while (j <= n && (substr(bl, j, 1) == ">" || substr(bl, j, 1) == "|" || substr(bl, j, 1) == "&")) j++
+        while (j <= n && substr(bl, j, 1) ~ /[ \t]/) j++
+        while (j <= n && substr(bl, j, 1) !~ /[ \t\n;|&]/) {
+          out = substr(out, 1, j - 1) " " substr(out, j + 1)
+          j++
+        }
+        i = j
+      }
+      printf "%s", out
+    }
+  ' 2>/dev/null || printf '%s' "$1"
+}
+
 # Does this text name one of the three endpoints the recorder routes?
 codex_guard_routed_endpoint() {
   case "$1" in
@@ -325,15 +385,18 @@ codex_guard_redirect_kind() {
       n = length($0)
       for (i = 1; i <= n; i++) {
         if (substr($0, i, 1) != ">") continue
-        if (substr($0, i, 3) == ">&2") { print "redirect"; exit }
+        # W2184 reordered this. The stderr-only exemption is tested FIRST: the
+        # other order refused `2>&2`, a stderr-to-stderr redirect that leaves the
+        # body on stdout, which is precisely the false positive the pitfall names
+        # -- and a sibling port permitted it, so the two disagreed.
         prev = (i > 1) ? substr($0, i - 1, 1) : " "
-        if (prev == "&") { print "redirect"; exit }          # &> and &>>
         if (prev == ">") continue                            # second > of >>
         if (prev == "2") {
           before = (i > 2) ? substr($0, i - 2, 1) : " "
-          if (before ~ /[ \t]/ || i == 2) continue           # 2> 2>> 2>&1
-          print "redirect"; exit
+          if (before ~ /[ \t]/ || i == 2) continue           # 2> 2>> 2>&1 2>&2
         }
+        if (substr($0, i, 3) == ">&2") { print "redirect"; exit }
+        if (prev == "&") { print "redirect"; exit }          # &> and &>>
         print "redirect"; exit
       }
     }
@@ -352,7 +415,7 @@ codex_guard_redirect_kind() {
 codex_guard_segment_kind() {
   local _cg_raw="$1" _cg_seg="$2" _cg_mode="${3:-}" _cg_stage _cg_word _cg_first=1 _cg_curl=0 _cg_rest
 
-  codex_guard_routed_endpoint "$_cg_raw" || return 0
+  codex_guard_routed_endpoint "$(codex_guard_scope_text "$_cg_raw" "$_cg_seg")" || return 0
 
   if [ "$_cg_mode" = "whole" ]; then
     for _cg_word in $_cg_seg; do
@@ -381,9 +444,9 @@ codex_guard_segment_kind() {
       esac
       if [ "$_cg_first" = "0" ]; then
         _cg_word=$(codex_guard_cmd_word "$_cg_stage")
-        case " $CODEX_GUARD_TRANSFORMERS " in
-          *" $_cg_word "*) printf 'pipe'; return 0 ;;
-        esac
+        if [ -n "$_cg_word" ] && [ "$_cg_word" != "tee" ]; then
+          printf 'pipe'; return 0
+        fi
       fi
       _cg_first=0
     done
@@ -406,6 +469,10 @@ codex_guard_segment_kind() {
       for _cg_word in $_cg_stage; do
         case "$_cg_word" in
           -O|--remote-name)          printf 'remote'; return 0 ;;
+          # W2184: named BEFORE the generic `--*` arm below, which skipped it
+          # wholesale. It writes bodies to local files exactly as -O does, and it
+          # was permitted here while a sibling port refused it.
+          --remote-name-all)         printf 'remote'; return 0 ;;
           -o|--output)               printf 'flag';   return 0 ;;
           --output=*)                printf 'flag';   return 0 ;;
           --)                        break ;;
@@ -419,12 +486,18 @@ codex_guard_segment_kind() {
       continue
     fi
 
-    # Rule 3 — a transformer downstream of the curl stage eats the body.
-    # `tee` is the one blessed pipe: it passes stdout through unchanged.
-    if [ "$_cg_first" = "0" ] && [ "$_cg_curl" = "1" ] && [ -n "$_cg_word" ]; then
-      case " $CODEX_GUARD_TRANSFORMERS " in
-        *" $_cg_word "*) printf 'pipe'; return 0 ;;
-      esac
+    # Rule 3 -- anything downstream of the curl stage that is not `tee` eats the
+    # body. `tee` is the one pass-through: it leaves stdout unchanged.
+    #
+    # W2184 made this an ALLOWLIST. It was a five-name denylist, and the
+    # cross-port matrix found the consequence: `| python3 -m json.tool`,
+    # `| xargs echo` and `| cat` were PERMITTED here while both sibling ports
+    # refused them. A closed list silently permits every consumer nobody thought
+    # to name, and the question the guard actually asks is whether the response
+    # still reaches stdout -- to which only `tee` answers yes.
+    if [ "$_cg_first" = "0" ] && [ "$_cg_curl" = "1" ] && [ -n "$_cg_word" ] \
+       && [ "$_cg_word" != "tee" ]; then
+      printf 'pipe'; return 0
     fi
     [ "$_cg_first" = "1" ] && _cg_first=0
   done
@@ -552,6 +625,14 @@ if [ "$PHASE" = "pre" ]; then
     CG_BL="$CG_RAW"
     CG_ONE_SEGMENT=1
   fi
+
+  # Neutralise the shell's GROUPING characters in the operator view, each
+  # replaced by a space so the substitution is LENGTH-PRESERVING and the pairing
+  # offsets still hold. W2184: without this a curl inside a command
+  # substitution, a subshell or a brace group is invisible to the command-word
+  # scan and the whole segment is skipped. Quoted spans are already blanked, so
+  # a `(` surviving here is real syntax rather than payload.
+  CG_BL=$(printf '%s' "$CG_BL" | LC_ALL=C tr '()`{}' '     ')
 
   # Blanking is length-preserving by construction, which is what lets the two
   # views be cut at the SAME offsets below. If that ever stops holding, FAIL

@@ -148,6 +148,41 @@ input reaches.
 
 The paired cases exist so none of these can pass again.
 
+### Fixed — cross-port reconciliation (W2184)
+
+W2184 drove the three hardened guards over ONE corpus, which is the thing three
+green per-port suites structurally cannot do: it found **18 shapes where the
+ports disagreed**, twelve of them real defects and all but one of those here.
+Each was a shape this port PERMITTED while a sibling refused it:
+
+- **`--remote-name-all`** — writes bodies to local files exactly as `-O` does,
+  but the generic `--*` arm skipped it wholesale before the cluster arm could
+  see it.
+- **`| python3 -m json.tool`, `| xargs echo`, `| cat`** — the transformer rule
+  was a five-name denylist, so every consumer nobody thought to name was
+  permitted. It is now an **allowlist**: only `tee` passes, because only `tee`
+  leaves the response on stdout.
+- **Shell wrappers** — `RESP=$(curl … -o x)`, a backtick substitution,
+  `( curl … > f )`, `{ curl … -o f; }`, and `if`/`while`-guarded calls. Each put
+  something other than `curl` in command position, so the whole segment was
+  skipped including the redirect rule. The grouping characters are now
+  neutralised length-preservingly and the compound keywords are skipped.
+
+And one shape it wrongly REFUSED: **an endpoint appearing only inside a redirect
+target** (`curl https://example.test/x > /tmp/api/tasks/9/complete`). The scope
+test now runs on raw text with redirect targets blanked, so the endpoint has to
+appear where a request could actually go.
+
+One ordering fix in the other direction: **`2>&2`** was refused, though a
+stderr-to-stderr redirect leaves the body on stdout. The stderr-only exemption
+is now tested before the `>&2` rule.
+
+After reconciliation the three ports agree on every shape in the corpus except
+six, which share a single deliberate cause now recorded in the guard header: a
+file-first sibling reads a canonical response file and may therefore deliver to
+it, while this port reads stdout alone and is built to refuse reading that cache
+at all.
+
 ## [1.37.0] - 2026-09-07
 
 ### Added — a back-reference beside every anchored rule (W2137)
