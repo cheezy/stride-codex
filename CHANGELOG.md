@@ -59,6 +59,15 @@ The commonest implementation mistake in stride's rework data was a false stateme
 - **Not applicable here: the claims-census hand-off.** In stride the reviewer also re-runs any `claims_verified_by` command the implementer recorded. This port has no claims census, so there is nothing to hand off.
 - **Pinned** by Test Group 21 in `hooks/test-stride-hook.sh`.
 
+### Changed — the task-reviewer looks for the declared twin of each file a diff touches (W2605)
+
+Half-finished sweeps cost stride whole review rounds: the PowerShell half of a bash change left behind, a rule's second statement left saying the old thing, references to a removed idea left in place. The repository already says which files go together; nothing checked that a change reached both.
+
+- **Twin Check, in review step 6, follows Statement Verification.** Each touched file is matched against three kinds of declared partner: the same path with the other extension (`.sh` and `.ps1`), a file it points to with a sentence that pairs them (kept in step, mirrored, twinned, a rule repeated), and any file sharing a `canon:` anchor with an edited section. Merely naming a file creates no pairing, and a file with no partner raises nothing. stride-codex's own hooks are bash only, but the `.sh`/`.ps1` kind stays: its installer is already such a pair, and the projects it reviews may carry both.
+- **Found by listing, never by running.** Only `git ls-files` and `grep` are used, under the same hardening, confinement and quoting rules as Statement Verification; the listing comes from `git ls-files -s`, a symlink entry is never grepped, and a listed path that holds a quote, a backslash or a control character, or starts with `-`, is never put in a command. Each partner's path is taken from the `git ls-files` listing, never from the diff's or the task's wording, and each command goes into the prose report. A pairing sentence that points at a file missing from the listing is reported as dangling.
+- **What it raises.** Changing behaviour, or a shared rule, without touching the partner is an Important `code_quality` issue naming both files and is never `cosmetic`; if the task or the invocation explains why the partner can stay as it is, nothing is raised. The block gains no key and `schema_version` stays `"1.7"`. Step 8 and `docs/task-reviewer-rationale.md` add the twin checks to the parts of the report.
+- **Pinned** by Test Group 22 in `hooks/test-stride-hook.sh`.
+
 ## [1.40.0] - 2026-11-04
 
 ### Changed — background prose leaves the completing-tasks skill and the reviewer prompt (W2597)
