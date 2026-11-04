@@ -1694,7 +1694,8 @@ if [ -f "$G4_WF" ] && [ -f "$G4_CT" ] && [ -f "$G4_REV" ]; then
     "$(g4_has 'COUNTER="$ROOT/.stride/.review-rounds-$IDENT.json"' "$G4_WF")"
   # The TASK_ID fallback is allow-listed too -- an unchecked one would sidestep
   # the guard by using the field it skips.
-  assert_eq "4q4: the identifier fallback is allow-listed, not trusted" "2" \
+  # Four: the counter and the fix-path classifier (W2593) each carry the pair.
+  assert_eq "4q4: the identifier fallback is allow-listed, not trusted" "4" \
     "$(grep -cF 'case "$IDENT" in *[!A-Za-z0-9_-]*|"")' "$G4_WF" || true)"
   # "A successful claim clears this counter" must be WIRED, not merely asserted:
   # a counter left behind makes a retry's first round count as the third.
@@ -1756,6 +1757,7 @@ if [ -f "$G4_WF" ] && command -v python3 > /dev/null 2>&1; then
     "$(awk '/^structured = json\.loads/{d=NR} /^# --- Round-cap pin/{p=NR} END{print (d&&p&&p>d)?"ok":"pin-above-parse"}' "$G4_WF")"
 
   # $1 review_round  $2 prior_critical  $3 critical_cleared  $4 structured -- all JSON.
+  # $5 prior_security (default 0) and $6 fix_code_paths (default -1, unmeasured).
   # "error" (rather than "refused") means the pin raised something other than
   # AssertionError; 4ac/4ad exist to prove coercion happens before comparison.
   g4_cap() {
@@ -1765,13 +1767,15 @@ review_round     = json.loads(sys.argv[1])
 prior_critical   = json.loads(sys.argv[2])
 critical_cleared = json.loads(sys.argv[3])
 structured       = json.loads(sys.argv[4])
+prior_security   = json.loads(sys.argv[5])
+fix_code_paths   = json.loads(sys.argv[6])
 try:
     exec(sys.stdin.read(), globals())
 except AssertionError:
     print("refused")
 else:
     print("pass")
-' "$1" "$2" "$3" "$4" 2>/dev/null || echo error
+' "$1" "$2" "$3" "$4" "${5:-0}" "${6:--1}" 2>/dev/null || echo error
   }
 
   G4_CLEAN='{"issues":[],"issue_counts":{"critical":0,"important":0,"minor":0}}'
@@ -1781,7 +1785,7 @@ else:
   G4_IMP='{"issues":[{"severity":"important","category":"code_quality"}],"issue_counts":{"critical":0,"important":1,"minor":0}}'
 
   assert_eq "4t: round 1 passes"  "pass"    "$(g4_cap 1 0 false "$G4_CLEAN")"
-  assert_eq "4u: round 2 passes"  "pass"    "$(g4_cap 2 0 false "$G4_CLEAN")"
+  assert_eq "4u: round 2 passes while fix_code_paths is unmeasured" "pass" "$(g4_cap 2 0 false "$G4_CLEAN")"
   assert_eq "4v: round 3 is refused" "refused" "$(g4_cap 3 0 false "$G4_CLEAN")"
   assert_eq "4w: round 3 passes when the prior round held a critical" "pass" \
     "$(g4_cap 3 1 false "$G4_CLEAN")"
@@ -1837,6 +1841,149 @@ else:
     "$(g4_cap 2 0 false '{"issues":[{"severity":"minor","category":"Security"}],"issue_counts":{"critical":0,"important":0,"minor":1}}')"
 else
   echo "  SKIP: 4r-4aj: python3 not installed or contract file not found"
+fi
+
+# W2593: the round-two triggers in the pin, the counter's prior_security and the
+# fix-path classifier. The classifier and counter fences are EXTRACTED from the
+# skill and run against throwaway git repositories, like the pin above.
+if [ -f "$G4_WF" ] && command -v python3 > /dev/null 2>&1 && command -v git > /dev/null 2>&1 \
+  && command -v jq > /dev/null 2>&1; then
+  G4_CLASSIFIER=$(awk 'index($0, "**Which paths changed — the fix-path classifier.**") == 1 {f = 1}
+    f && /^```bash$/ {g = 1; next} g && /^```$/ {exit} g' "$G4_WF")
+  G4_COUNTER=$(awk 'index($0, "**The counter.**") == 1 {f = 1}
+    f && /^```bash$/ {g = 1; next} g && /^```$/ {exit} g' "$G4_WF")
+  # $1 project dir  $2 FIX_STAGE  $3 FIX_REPOS; prints FIX_CODE_PATHS only.
+  g4_fix() {
+    ( cd "$1" && CLAUDE_PROJECT_DIR="$1" TASK_IDENTIFIER="${G4_TI-W1}" TASK_ID="${G4_TID-1}" \
+        FIX_STAGE="$2" FIX_REPOS="$3" bash -c "$G4_CLASSIFIER" 2>/dev/null ) | sed -n 's/^FIX_CODE_PATHS=//p'
+  }
+  # A project dir with .stride/ and a committed repo of one file per kind.
+  g4_repo() {
+    mkdir -p "$1/proj/.stride" "$1/repo/lib" "$1/repo/docs" "$1/repo/test"
+    git -C "$1/repo" init -q
+    printf 'int a;\n' > "$1/repo/lib/a.c"
+    printf 'echo hi\n' > "$1/repo/lib/run.sh"
+    printf 'x = 1\n' > "$1/repo/lib/m.ex"
+    printf 'req==1\n' > "$1/repo/requirements.txt"
+    printf '# Guide\n' > "$1/repo/docs/guide.md"
+    printf 'ok\n' > "$1/repo/test/a_test.exs"
+    git -C "$1/repo" add -A
+    git -C "$1/repo" -c user.name=t -c user.email=t@example.invalid commit -qm base
+  }
+  # $1 name  $2 a fixed edit run inside the repo after the baseline -> the count.
+  g4_scn() {
+    g4_d="$TMPDIR_TEST/g4fix-$1"; g4_repo "$g4_d"
+    g4_fix "$g4_d/proj" base "$g4_d/repo" > /dev/null
+    ( cd "$g4_d/repo" && eval "$2" )
+    g4_fix "$g4_d/proj" count "$g4_d/repo"
+  }
+
+  assert_eq "4bd: the classifier fence is extractable from the contract" "yes yes" \
+    "$(printf '%s' "$G4_CLASSIFIER" | grep -qF 'FIX_STAGE' && echo yes || echo no) $(printf '%s' "$G4_COUNTER" | grep -qF 'prior_security' && echo yes || echo no)"
+  G4_DOCS=$(g4_scn docs "printf 'more\n' >> docs/guide.md")
+  assert_eq "4be: a docs-only fix fixture is refused at round 2" "0 refused" \
+    "$G4_DOCS $(g4_cap 2 0 false "$G4_CLEAN" 0 "$G4_DOCS")"
+  G4_CODE=$(g4_scn code "printf 'y = 2\n' >> lib/m.ex")
+  assert_eq "4bf: a code-path fix fixture is allowed at round 2" "1 pass" \
+    "$G4_CODE $(g4_cap 2 0 false "$G4_CLEAN" 0 "$G4_CODE")"
+  assert_eq "4bg: prior_security 1 allows round 2 with zero code paths" "pass" \
+    "$(g4_cap 2 0 false "$G4_CLEAN" 1 0)"
+  assert_eq "4bh: fix_code_paths -1 (unmeasured) allows round 2, and so does a malformed one" "pass pass" \
+    "$(g4_cap 2 0 false "$G4_CLEAN" 0 -1) $(g4_cap 2 0 false "$G4_CLEAN" 0 '"0"')"
+  assert_eq "4bi: a prior critical or a cleared critical still earns round 2" "pass pass" \
+    "$(g4_cap 2 1 false "$G4_CLEAN" 0 0) $(g4_cap 2 0 true "$G4_CLEAN" 0 0)"
+  assert_eq "4bj: malformed prior_security reads as 0 in the pin" "refused refused refused refused" \
+    "$(g4_cap 2 0 false "$G4_CLEAN" '"1"' 0) $(g4_cap 2 0 false "$G4_CLEAN" true 0) $(g4_cap 2 0 false "$G4_CLEAN" '["x"]' 0) $(g4_cap 2 0 false "$G4_CLEAN" null 0)"
+  assert_eq "4bk: no new term allows round 3" "refused refused refused" \
+    "$(g4_cap 3 0 false "$G4_CLEAN" 1 0) $(g4_cap 3 0 false "$G4_CLEAN" 0 5) $(g4_cap 3 0 false "$G4_CLEAN" 0 -1)"
+  assert_eq "4bl: *.txt counts as code, a test or a shell # comment does not" "1 0 0" \
+    "$(g4_scn txt "printf 'req==2\n' >> requirements.txt") $(g4_scn testfile "printf 'more\n' >> test/a_test.exs") $(g4_scn shcomment "printf '# a note\n' >> lib/run.sh")"
+  assert_eq "4bm: a # line in a .c file is code, and so is code between comments" "1 1" \
+    "$(g4_scn chash "printf '# define X 1\n' >> lib/a.c") $(g4_scn cinline "printf '/* a */ x(); /* b */\n' >> lib/a.c")"
+  assert_eq "4bn: an untracked new file created by the fix counts" "1" \
+    "$(g4_scn untracked "printf 'z = 3\n' > lib/new.ex")"
+  # An external diff driver prints no @@ hunks; the classifier must not use it,
+  # or every comment-only change to a code file would read as code. (A docs
+  # path is decided by its name and never diffed, so the edit is a comment.)
+  assert_eq "4bz: a repo's diff.external does not change the count" "0" \
+    "$(g4_scn extdiff "git config diff.external /bin/true && printf '# a note\n' >> lib/run.sh")"
+  # A docs file whose name git would quote (space, quote) is still docs. And
+  # lib/[m].ex is a literal name: read as a glob it would match lib/m.ex and
+  # pick up that file's code change, counting a comment-only file as code.
+  assert_eq "4ca: odd file names are read literally" "0 1" \
+    "$(g4_scn oddname "printf 'n\n' > 'docs/odd \"name\".md'") $(g4_scn globname "printf 'y = 2\n' >> lib/m.ex && printf '# note\n' > 'lib/[m].ex'")"
+  # Base twice: the second run must leave the first baseline as it was, so
+  # the count still sees the fix made between them.
+  G4_BD="$TMPDIR_TEST/g4fix-twice"; g4_repo "$G4_BD"
+  g4_fix "$G4_BD/proj" base "$G4_BD/repo" > /dev/null
+  G4_B1=$(cat "$G4_BD/proj/.stride/.review-fixbase-W1.txt")
+  printf 'y = 2\n' >> "$G4_BD/repo/lib/m.ex"
+  g4_fix "$G4_BD/proj" base "$G4_BD/repo" > /dev/null
+  G4_B2=$(cat "$G4_BD/proj/.stride/.review-fixbase-W1.txt")
+  assert_eq "4bo: FIX_STAGE=base does not overwrite an existing fix-base file" "same 1" \
+    "$([ "$G4_B1" = "$G4_B2" ] && echo same || echo replaced) $(g4_fix "$G4_BD/proj" count "$G4_BD/repo")"
+  assert_eq "4bp: the fix-base file holds a tree id and a repo path only" "yes" \
+    "$(printf '%s\n' "$G4_B1" | awk -v r="$G4_BD/repo" '{ sp = index($0, " "); t = substr($0, 1, sp - 1) }
+        !(sp >= 41 && t ~ /^[0-9a-f]+$/ && substr($0, sp + 1) == r) { bad = 1 }
+        END { print (NR == 1 && !bad) ? "yes" : "no" }')"
+  G4_ND="$TMPDIR_TEST/g4fix-nobase"; g4_repo "$G4_ND"
+  G4_NB=$(g4_fix "$G4_ND/proj" count "$G4_ND/repo")
+  printf '%s %s\n' 0123456789abcdef0123456789abcdef01234567 "$G4_ND/repo" > "$G4_ND/proj/.stride/.review-fixbase-W1.txt"
+  assert_eq "4bq: count with no baseline, or a tree git does not have, is unmeasured (-1)" "-1 -1" \
+    "$G4_NB $(g4_fix "$G4_ND/proj" count "$G4_ND/repo")"
+  # A hostile identifier falls back to the numeric id, then to "unknown", and
+  # never writes outside .stride/.
+  G4_HD="$TMPDIR_TEST/g4fix-hostile"; g4_repo "$G4_HD"
+  G4_TI='../../x' G4_TID=7 g4_fix "$G4_HD/proj" base "$G4_HD/repo" > /dev/null
+  G4_TI='../../x' G4_TID='7/..' g4_fix "$G4_HD/proj" base "$G4_HD/repo" > /dev/null
+  assert_eq "4br: the fix-base path uses the counter's anchored identifier rule" "yes yes no" \
+    "$([ -f "$G4_HD/proj/.stride/.review-fixbase-7.txt" ] && echo yes || echo no) $([ -f "$G4_HD/proj/.stride/.review-fixbase-unknown.txt" ] && echo yes || echo no) $([ -e "$TMPDIR_TEST/x" ] || [ -e "$G4_HD/x" ] && echo yes || echo no)"
+  # The counter records prior_security beside prior_critical and reads it back.
+  G4_CD="$TMPDIR_TEST/g4counter"; mkdir -p "$G4_CD/.stride"
+  ( cd "$G4_CD" && CLAUDE_PROJECT_DIR="$G4_CD" TASK_IDENTIFIER=W1 TASK_ID=1 THIS_ROUND_CRITICAL=0 \
+      THIS_ROUND_SECURITY=2 bash -c "$G4_COUNTER" ) > /dev/null 2>&1
+  g4_prior_sec() {
+    ( cd "$G4_CD" && CLAUDE_PROJECT_DIR="$G4_CD" TASK_IDENTIFIER=W1 TASK_ID=1 \
+        bash -c "$G4_COUNTER"$'\n''echo "$PRIOR_SEC"' ) 2>/dev/null
+  }
+  assert_eq "4bs: the counter records prior_security beside prior_critical" "2 0 2" \
+    "$(jq -r '"\(.prior_security) \(.prior_critical)"' "$G4_CD/.stride/.review-rounds-W1.json") $(g4_prior_sec)"
+  g4_bad_sec() {
+    printf '{"identifier":"W1","round":1,"prior_critical":0,"prior_security":%s}\n' "$1" > "$G4_CD/.stride/.review-rounds-W1.json"
+    g4_prior_sec
+  }
+  assert_eq "4bt: malformed prior_security in the counter reads as 0" "0 0 0 0 0 0" \
+    "$(g4_bad_sec '"x"') $(g4_bad_sec true) $(g4_bad_sec 1.5) $(g4_bad_sec '[1]') $(g4_bad_sec '"3"') $(g4_bad_sec 1e30)"
+  # Quoted digits in round or prior_critical read as 0 too: jq -r would print
+  # them bare, which is why the type is checked inside jq.
+  printf '{"identifier":"W1","round":"2","prior_critical":"1","prior_security":0}\n' > "$G4_CD/.stride/.review-rounds-W1.json"
+  assert_eq "4bx: quoted digits in round or prior_critical read as 0" "0 0" \
+    "$( ( cd "$G4_CD" && CLAUDE_PROJECT_DIR="$G4_CD" TASK_IDENTIFIER=W1 TASK_ID=1 \
+        bash -c "$G4_COUNTER"$'\n''echo "$PRIOR $PRIOR_CRIT"' ) 2>/dev/null)"
+  # A symlinked counter is neither read nor written through.
+  G4_SD="$TMPDIR_TEST/g4counter-link"; mkdir -p "$G4_SD/.stride"
+  printf 'untouched\n' > "$G4_SD/target"
+  ln -s "$G4_SD/target" "$G4_SD/.stride/.review-rounds-W1.json"
+  ( cd "$G4_SD" && CLAUDE_PROJECT_DIR="$G4_SD" TASK_IDENTIFIER=W1 TASK_ID=1 THIS_ROUND_SECURITY=1 \
+      bash -c "$G4_COUNTER" ) > /dev/null 2>&1
+  assert_eq "4by: a symlinked counter is not written through" "untouched" "$(cat "$G4_SD/target")"
+  G4_CL="$PORT_ROOT/skills/stride-claiming-tasks/SKILL.md"
+  assert_eq "4bu: the fix-base file is in the artifact clear" "yes yes yes yes" \
+    "$(g4_has '"${CLAUDE_PROJECT_DIR:-.}/.stride/.review-fixbase-$RC_IDENT.txt"' "$G4_WF") $(g4_has '"${CLAUDE_PROJECT_DIR:-.}/.stride/.review-fixbase-$RC_IDENT.txt"' "$G4_CL") $(g4_has '"$ROOT/.stride/.review-fixbase-$TF_IDENT.txt"' "$G4_WF") $(g4_has '"$ROOT/.stride/.review-fixbase-$TF_ID.txt"' "$G4_WF")"
+  G4_CAP=$(awk 'index($0, "<!-- canon:review-round-cap") == 1 {f = 1} f && index($0, "**Canon-governed — entry `review-round-cap`") == 1 {exit} f' "$G4_WF")
+  assert_eq "4bv: Step 6 says when each stage runs and what the file may hold" "yes yes yes yes" \
+    "$(g4_in 'Use `FIX_STAGE=base` a single time, as soon as round one'"'"'s block parses and before your first edit' "$G4_CAP") $(g4_in 'Use `FIX_STAGE=count` once the fixes are in' "$G4_CAP") $(g4_in 'it never buys a third round' "$G4_CAP") $(g4_in 'The file holds tree ids and paths only, never review text or diff content.' "$G4_CAP")"
+  # A Step 6.5 security finding below critical never reaches issues[], so the
+  # prose must not promise it a round the pin refuses, and the limit is stated.
+  G4_P35=$(awk 'index($0, "## Phase 3.5:") == 1 {f = 1} f && index($0, "## Phase 3.6:") == 1 {exit} f' "$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md")
+  G4_S65=$(awk 'index($0, "## Step 6.5:") == 1 {f = 1} f && index($0, "## Step 6.6:") == 1 {exit} f' "$G4_WF")
+  assert_eq "4cb: a sub-critical Step 6.5 security fix earns round two only through code" "yes yes yes no no" \
+    "$(g4_in 'never reaches `issues[]`, so the pin cannot see it: its fix earns a further round only by editing a code path' "$G4_S65") $(g4_in 'never reaches `issues[]`, so the pin cannot see it: its fix earns a further round only by editing a code path' "$G4_P35") $(g4_in 'so `prior_security` cannot count a security finding from the exploratory session' "$G4_CAP") $(g4_in 'an introduced `critical`, or a `category: "security"` finding earns a further round' "$G4_S65") $(g4_in 'an introduced `critical`, or a `category: "security"` finding earns a further round' "$G4_P35")"
+  # The installers copy SKILL.md alone, so the fence must not move to a sibling.
+  assert_eq "4bw: the classifier lives in SKILL.md, not in a sibling file" "no" \
+    "$([ -e "$PORT_ROOT/skills/stride-workflow/review-block-extraction.md" ] && echo yes || echo no)"
+else
+  echo "  SKIP: 4bd-4cb: python3, git or jq not installed, or contract file not found"
 fi
 
 # ============================================================

@@ -181,10 +181,13 @@ git rev-parse HEAD > .stride/task-base-ref
 # so it strands rather than leaks, and it strands without naming the cause.
 # Same identifier derivation as the counter write; the unrooted rm is safe only
 # because the name is allow-listed to [A-Za-z0-9_-] before it is used.
+# The fix-path baseline (.review-fixbase-*.txt) goes with it: a stale one
+# would measure this attempt's fixes against another attempt's tree.
 RC_IDENT="$TASK_IDENTIFIER"
 case "$RC_IDENT" in *[!A-Za-z0-9_-]*|"") RC_IDENT="$TASK_ID" ;; esac
 case "$RC_IDENT" in *[!A-Za-z0-9_-]*|"") RC_IDENT="unknown" ;; esac
-rm -f "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-rounds-$RC_IDENT.json"
+rm -f "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-rounds-$RC_IDENT.json" \
+      "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-fixbase-$RC_IDENT.txt"
 ```
 
    `.stride/task-base-ref` is read back by the changed_files snapshot in `stride-completing-tasks` (the env var does not survive Codex shell turns).
@@ -337,7 +340,7 @@ Follow:
 
 **A `category: "security"` finding is never merely recorded, at any severity.** `important` is this reviewer's documented default severity for a security finding, so a naive reading of the record-don't-fix rule above would quietly ship an unfixed weakness to Done. A security finding has the same two exits a `critical` has: fix it, or stop with `review_blocked`.
 
-**Enforced, or stated? Both — and here is which is which.** The cap's *arithmetic* is **mechanically enforced**: the round-cap pin at the end of the self-check below is a real assert this port runs on every completion, and it refuses a third round, honours the `critical` exemption, and refuses a `critical` or `category: "security"` finding at the cap. The three triggers are not evaluated by that pin: deciding which one holds is your reading of round one's block and of the paths your fixes touched. The cap's *inputs* are **self-asserted, not result-verified**: the round number comes from a counter this orchestrator writes itself, and this port persists no per-round reviewer artifact to recount it against — so an orchestrator that never increments makes the cap read green and nothing here catches it. That is the same footing the pin's `critical_cleared` input sits on (stride spells the same self-certified limit `CRITICAL_CLEARED`), and it is stated here rather than left implied. **Read the pin as a guarantee that a round you counted past the cap is refused — not as a guarantee that a further round is impossible.**
+**Enforced, or stated? Both — and here is which is which.** The cap's *arithmetic* is **mechanically enforced**: the round-cap pin at the end of the self-check below is a real assert this port runs on every completion, and it refuses a third round, honours the `critical` exemption, and refuses a `critical` or `category: "security"` finding at the cap. It also refuses an untriggered round two, reading the triggers from `prior_critical`, `prior_security` (the counter below) and `fix_code_paths` (the classifier further down); those three are inputs on the same footing as the round number, and `fix_code_paths` left at `-1`, unmeasured, keeps round two open. The cap's *inputs* are **self-asserted, not result-verified**: the round number comes from a counter this orchestrator writes itself, and this port persists no per-round reviewer artifact to recount it against — so an orchestrator that never increments makes the cap read green and nothing here catches it. That is the same footing the pin's `critical_cleared` input sits on (stride spells the same self-certified limit `CRITICAL_CLEARED`), and it is stated here rather than left implied. **Read the pin as a guarantee that a round you counted past the cap is refused — not as a guarantee that a further round is impossible.**
 
 **The counter.** Keep it in this port's existing `.stride/` persistence idiom, at `.stride/.review-rounds-<IDENTIFIER>.json` — an identifier and integers, **never review content**. Write it *after* the parse, per the second guard above:
 
@@ -356,22 +359,160 @@ COUNTER="$ROOT/.stride/.review-rounds-$IDENT.json"               # from free tex
 # TASK_IDENTIFIER, so whatever could poison one could poison the other, and an
 # unchecked fallback would sidestep the guard by using the field it skips.
 
-# Read BEFORE writing: these two are the pin's `review_round` and
-# `prior_critical` inputs for THIS round.
-PRIOR=$(jq -r '.round // 0' "$COUNTER" 2>/dev/null || echo 0)
-PRIOR_CRIT=$(jq -r '.prior_critical // 0' "$COUNTER" 2>/dev/null || echo 0)
-case "$PRIOR" in ''|*[!0-9]*) PRIOR=0 ;; esac
-case "$PRIOR_CRIT" in ''|*[!0-9]*) PRIOR_CRIT=0 ;; esac
-# Write THIS round's critical count, which becomes the next round's prior.
-THIS_CRIT="${THIS_ROUND_CRITICAL:-0}"
-case "$THIS_CRIT" in ''|*[!0-9]*) THIS_CRIT=0 ;; esac
-printf '{"identifier":"%s","round":%d,"prior_critical":%d}\n' \
-  "$IDENT" "$((PRIOR + 1))" "$THIS_CRIT" > "$COUNTER"
+# One field of the counter as a whole non-negative JSON number, else 0. The
+# type is checked inside jq: `jq -r` prints the string "3" as 3, so a digits
+# test in the shell alone would take a quoted value for a number.
+counter_int() {
+  jq -r --arg k "$1" 'if type == "object" then .[$k] else null end
+    | if type == "number" and . >= 0 and . == floor then . else 0 end' \
+    "$COUNTER" 2>/dev/null || echo 0
+}
+
+if [ -L "$ROOT/.stride" ] || [ -L "$COUNTER" ]; then
+  # A symlink could aim both the read and the write somewhere else. Leave the
+  # counter alone and bind review_round = None, which the pin refuses.
+  echo "review-round counter: .stride/ or the counter is a symlink; not read or written" >&2
+else
+  # Read BEFORE writing: these three are the pin's `review_round`,
+  # `prior_critical` and `prior_security` inputs for THIS round.
+  PRIOR=$(counter_int round)
+  PRIOR_CRIT=$(counter_int prior_critical)
+  PRIOR_SEC=$(counter_int prior_security)
+  # Anything that is not a whole number (a string, quoted digits included, true,
+  # 1.5, a list, 1e30) reads as 0, so a damaged counter can only take a trigger
+  # away, never add one.
+  case "$PRIOR" in ''|*[!0-9]*) PRIOR=0 ;; esac
+  case "$PRIOR_CRIT" in ''|*[!0-9]*) PRIOR_CRIT=0 ;; esac
+  case "$PRIOR_SEC" in ''|*[!0-9]*) PRIOR_SEC=0 ;; esac
+  # Write THIS round's critical and security counts; they become the next
+  # round's priors.
+  THIS_CRIT="${THIS_ROUND_CRITICAL:-0}"
+  THIS_SEC="${THIS_ROUND_SECURITY:-0}"
+  case "$THIS_CRIT" in ''|*[!0-9]*) THIS_CRIT=0 ;; esac
+  case "$THIS_SEC" in ''|*[!0-9]*) THIS_SEC=0 ;; esac
+  printf '{"identifier":"%s","round":%d,"prior_critical":%d,"prior_security":%d}\n' \
+    "$IDENT" "$((PRIOR + 1))" "$THIS_CRIT" "$THIS_SEC" > "$COUNTER"
+fi
 ```
 
-`$((PRIOR + 1))` is the pin's `review_round`, and `$PRIOR_CRIT` is its `prior_critical` — this file is the only durable carrier either has, because this port persists no per-round reviewer artifact and its shell state does not survive turns. `THIS_ROUND_CRITICAL` is the `issue_counts.critical` of the block you just parsed.
+`$((PRIOR + 1))` is the pin's `review_round`, `$PRIOR_CRIT` its `prior_critical` and `$PRIOR_SEC` its `prior_security` — this file is the only durable carrier any of them has, because this port persists no per-round reviewer artifact and its shell state does not survive turns. `THIS_ROUND_CRITICAL` is the `issue_counts.critical` of the block you just parsed, and `THIS_ROUND_SECURITY` the number of its `issues[]` entries whose `category` is exactly `"security"`.
 
 A successful claim clears this counter: it is scoped to one attempt, so an attempt that ended any other way must not leave its count behind to make the next attempt's first round read as the third.
+
+**Which paths changed — the fix-path classifier.** The first trigger is decided by this fence rather than by reading the diff. Use `FIX_STAGE=base` a single time, as soon as round one's block parses and before your first edit: for every repository it stores a git tree id of the working tree as git would stage it — new files too, ignored ones left out — in `.stride/.review-fixbase-<IDENTIFIER>.txt`, and a second `base` run finds that file and leaves it alone, so the baseline is always the tree before the first fix. Use `FIX_STAGE=count` once the fixes are in: it prints `FIX_CODE_PATHS`, the number of changed paths that are code under the rule above, which is the pin's `fix_code_paths`. `FIX_REPOS` lists the repositories your fixes may touch, one per line, and defaults to the current one; for a task in a nested repository name that repository, not the project root that ignores it. The file holds tree ids and paths only, never review text or diff content. Like the counter it reads `TASK_IDENTIFIER` and `TASK_ID`, which do not survive this port's separate shell turns, so set them in the same command. `-1` means *unmeasured* — no baseline, no `.stride/`, or a tree git could not build — and keeps round two available, as it was before the triggers existed; it never buys a third round.
+
+```bash
+ROOT="${CLAUDE_PROJECT_DIR:-.}"
+IDENT="$TASK_IDENTIFIER"
+case "$IDENT" in *[!A-Za-z0-9_-]*|"") IDENT="$TASK_ID" ;; esac
+case "$IDENT" in *[!A-Za-z0-9_-]*|"") IDENT="unknown" ;; esac
+FIX_BASE_FILE="$ROOT/.stride/.review-fixbase-$IDENT.txt"
+FIX_REPOS="${FIX_REPOS:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+FIX_CODE_PATHS=-1
+
+# The classifier's git calls on a repository go through here (the FIX_REPOS
+# default above does not): fsmonitor is off and a path is always a literal
+# path, never a glob or magic pathspec. Other repo-configured programs, such as
+# a clean or process filter that `git add -A` applies, still run.
+fix_git() { GIT_LITERAL_PATHSPECS=1 git -c core.fsmonitor=false -C "$@"; }
+
+# A tree id for the repo's working tree as it stands, untracked files included.
+# It stages into a throwaway copy of the index, so the real index is untouched.
+snapshot_tree() {
+  scratch=$(mktemp -d "${TMPDIR:-/tmp}/stride-fixbase.XXXXXX") || return 1
+  gitdir=$(fix_git "$1" rev-parse --absolute-git-dir 2>/dev/null) || { rm -rf "$scratch"; return 1; }
+  [ -f "$gitdir/index" ] && cp "$gitdir/index" "$scratch/index"
+  GIT_INDEX_FILE="$scratch/index" fix_git "$1" add -A >/dev/null 2>&1 &&
+    GIT_INDEX_FILE="$scratch/index" fix_git "$1" write-tree 2>/dev/null
+  status=$?
+  rm -rf "$scratch"
+  return $status
+}
+
+# Exit 0 when path $4 counts as code between trees $2 and $3 of repo $1.
+is_code_change() {
+  case "$4" in
+    .stride/*|*.md|*.mdx|*.markdown|*.rst|*.adoc|docs/*|*/docs/*) return 1 ;;
+    README*|*/README*|CHANGELOG*|*/CHANGELOG*|LICENSE*|*/LICENSE*) return 1 ;;
+    test/*|*/test/*|tests/*|*/tests/*|spec/*|*/spec/*|__tests__/*|*/__tests__/*) return 1 ;;
+    *_test.*|*.test.*|*_spec.*|*.spec.*|test-*.sh|*/test-*.sh|test-*.ps1|*/test-*.ps1) return 1 ;;
+  esac
+  # In C-family sources a line starting with # is a preprocessor directive.
+  directive=0
+  case "$4" in *.c|*.h|*.cc|*.cpp|*.cxx|*.hh|*.hpp|*.m|*.mm) directive=1 ;; esac
+  # A path is code unless each line it changes is empty or nothing but a
+  # comment. No text hunk at all (binary, mode change) also means code. No
+  # external diff or textconv driver: the awk reads git's own hunks only.
+  fix_git "$1" diff -U0 --no-color --no-ext-diff --no-textconv "$2" "$3" -- "$4" | awk -v directive="$directive" '
+    /^@@/ { hunk = 1; next }
+    hunk && /^[+-]/ {
+      s = substr($0, 2); sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); n = length(s)
+      if (n == 0) next
+      if (substr(s, 1, 2) == "//") next
+      if (substr(s, 1, 2) == "/*" && n >= 4 && index(s, "*/") == n - 1) next
+      if (substr(s, 1, 4) == "<!--" && n >= 7 && index(s, "-->") == n - 2) next
+      if (substr(s, 1, 3) == "<%#" && n >= 5 && index(s, "%>") == n - 1) next
+      if (!directive && (s == "#" || substr(s, 1, 2) == "# ")) next
+      code = 1
+    }
+    END { exit (hunk && !code) ? 1 : 0 }'
+}
+
+# The number of code paths changed between two trees, or -1 if git fails.
+# Names are read NUL-separated, so an odd file name arrives unquoted.
+count_code_paths() {
+  list=$(mktemp "${TMPDIR:-/tmp}/stride-fixpaths.XXXXXX") || { echo -1; return; }
+  if ! fix_git "$1" diff-tree -z -r --name-only "$2" "$3" > "$list" 2>/dev/null; then
+    rm -f "$list"; echo -1; return
+  fi
+  n=0
+  while IFS= read -r -d '' p; do
+    [ -n "$p" ] || continue
+    is_code_change "$1" "$2" "$3" "$p" && n=$((n + 1))
+  done < "$list"
+  rm -f "$list"
+  echo "$n"
+}
+
+if [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ]; then
+  echo "fix-path classifier: no project .stride/ here, so nothing recorded or measured" >&2
+else
+  case "${FIX_STAGE:-}" in
+    base)
+      if [ -e "$FIX_BASE_FILE" ]; then
+        echo "fix-path classifier: baseline already recorded, left as it is" >&2
+      else
+        lines=""
+        while IFS= read -r repo; do
+          [ -n "$repo" ] || continue
+          tree=$(snapshot_tree "$repo") || tree=unknown
+          case "$tree" in ""|*[!0-9a-f]*) tree=unknown ;; esac
+          lines="$lines$tree $repo
+"
+        done <<< "$FIX_REPOS"
+        # noclobber: if another run created the file first, theirs stands.
+        ( set -C; printf '%s' "$lines" > "$FIX_BASE_FILE" ) 2>/dev/null ||
+          echo "fix-path classifier: baseline already recorded, left as it is" >&2
+      fi ;;
+    count)
+      if [ -s "$FIX_BASE_FILE" ]; then
+        total=0
+        while IFS=' ' read -r base repo; do
+          case "$base" in ""|*[!0-9a-f]*) total=-1; break ;; esac
+          fix_git "$repo" cat-file -e "$base^{tree}" 2>/dev/null || { total=-1; break; }
+          now=$(snapshot_tree "$repo") || { total=-1; break; }
+          n=$(count_code_paths "$repo" "$base" "$now")
+          case "$n" in ""|*[!0-9]*) total=-1; break ;; esac
+          total=$((total + n))
+        done < "$FIX_BASE_FILE"
+        FIX_CODE_PATHS=$total
+      fi ;;
+  esac
+fi
+echo "FIX_CODE_PATHS=$FIX_CODE_PATHS"
+```
+
+What this classification cannot see, said plainly: it reads paths and the first characters of changed lines, nothing more. A docstring or `@doc` edit is code; `#[derive]` stays code, since the comment form needs a space after the `#` or nothing at all. This port's own skills and agents are markdown files, so editing one counts as documentation; that is intended, because the second rounds such edits used to buy turned up wording, not defects. The repositories measured are the ones `FIX_REPOS` named when the baseline was taken. And the pin only ever closes round two: if a round two was owed and you skipped it, nothing mechanical notices. One gap follows from that: Step 6.5 never writes a finding below `critical` to `issues[]`, so `prior_security` cannot count a security finding from the exploratory session. Its fix earns round two only by touching a code path; if it touched none, say in `completion_notes` and one line of `completion_summary` that the fix was not re-reviewed, so a human sees it.
 
 **Canon-governed — entry `review-round-cap` in `stride/docs/port-canon.md`.** That entry registers the two-round ceiling, the three triggers that earn round two, the record-instead-of-re-review disposition, the `critical` exemption, and recording rather than fixing whatever is left after round two, as rules every port must carry. A change to their substance owes a version bump in **two** places before the next release: that entry in the canon, and this file's own `<!-- canon:review-round-cap ... -->` anchor above.
 The reviewer returns a human-readable prose summary followed by a fenced ```json block. The schema of that block is owned by `agents/task-reviewer.md` — do not duplicate field definitions here.
@@ -426,23 +567,33 @@ assert len(structured["acceptance_criteria"]) == len(task_criterion_lines), \
 # --- Round-cap pin (W2161) ---
 # Two rounds is the whole budget. The arithmetic below is REAL and runs on every
 # completion; its INPUTS are self-asserted (see Step 6's "Enforced or stated?").
-# Bind these three before the pin runs. Where you have no value, bind the
-# fail-closed default shown — never a guess:
+# Bind these five before the pin runs. Where you have no value, bind the
+# default shown — never a guess:
 #   review_round     = <the round number you just counted>   # no counter -> None
 #   prior_critical   = <previous round's issue_counts["critical"]>  # unknown -> 0
+#   prior_security   = <the counter's PRIOR_SEC for this round>     # unknown -> 0
+#   fix_code_paths   = <FIX_CODE_PATHS the classifier printed>     # not run -> -1
 #   critical_cleared = False   # True only when YOU cleared a critical this round
 def _int(v, default=-1):
     # bool is an int subclass, and "2" / ["x"] / None are not integers at all.
     return v if isinstance(v, int) and not isinstance(v, bool) else default
 _round = _int(review_round)          # unset or malformed -> -1
 _prior = _int(prior_critical, 0)
+_security = _int(prior_security, 0)  # malformed -> 0: it can only remove a trigger
+_paths = _int(fix_code_paths, -1)    # malformed or unmeasured -> -1: round two stays open
 _cleared = critical_cleared is True  # exact True, never a truthy string
 # FLOOR THE ROUND FIRST. The exemptions excuse a KNOWN third round; without the
 # floor they also excuse an UNKNOWN one, so `review_round = None` plus an honest
 # `prior_critical = 1` would pass. That is the fail-open direction.
-round_cap_ok = _round > 0 and ((_round <= 2) or _prior > 0 or _cleared)
+# Round two needs a trigger. Rounds three and up answer only to the critical
+# exemption: prior_security and fix_code_paths never reach past round two.
+_round_two_earned = _prior > 0 or _security > 0 or _paths != 0 or _cleared
+round_cap_ok = _round > 0 and (
+    _round == 1
+    or (_round == 2 and _round_two_earned)
+    or (_round >= 3 and (_prior > 0 or _cleared)))
 assert round_cap_ok, \
-    "review round cap exceeded, or the round number is unset/malformed: after round two, RECORD residual important/minor findings in completion_notes and completion_summary, or stop with review_blocked — do not dispatch another round"
+    "review round cap exceeded, or the round number is unset/malformed: after round two, RECORD residual important/minor findings in completion_notes and completion_summary, or stop with review_blocked — do not dispatch another round. A round two with no trigger (no prior critical, no prior security issue, fix_code_paths 0) is not a breach to escalate: submit round one's block and record the fixed findings"
 
 # The cap relaxes to recording. It never relaxes to shipping a critical or a
 # security finding, so those are excluded from what recording can cover.
@@ -746,7 +897,7 @@ Every uncertain case therefore resolves to **discovered**, and that is deliberat
 
 **Introduced → fail-closed, in the same shape as the security escalation.** Apply these to the `reviewer_result` you are about to submit, **after** the whole-object copy and never before it, since that copy replaces the object wholesale: set `reviewer_result.testing_strategy.status` to `"failed"`; append a `category: "testing"` / `severity: "critical"` `issues[]` entry whose `description` is **your own** redacted restatement plus the provenance evidence, whose `file` / `line` point at the responsible lines (by definition of this branch, lines in your change set), and whose `suggested_fix` says what to change; and increment `issue_counts.critical` and `issues_found` by one to match. This is a sanctioned, bounded exception to the whole-object-copy rule on the same terms the `security_considerations` escalation already is — not licence to hand-type the rest of the object. **Nothing catches this mechanically.** This port's self-check pairs verdicts with issues for `behaviour_test_matrix` rows and the nested security considerations only, and the server does not backstop a `testing_strategy`↔`issues[]` rule — and the Step 6 gate is *upstream* of this step, so it acts on the appended Critical only once the mandated re-review puts it back in front of that gate. The pairing is an instruction you keep rather than a check that catches you. So **fix the defect, re-run the affected charter, and re-run the reviewer before completing** — the fresh review is what clears the escalation, which is why the remedy is a re-review rather than a hand-edit of the entry you appended. The re-run has to actually re-reach the defect: re-execute the finding's own minimal repro. Record in `completion_notes` and one line of `completion_summary` that a Critical this task introduced was found and fixed. This flips `testing_strategy` **only** and never touches a `behaviour_test_matrix` verdict.
 
-**Fixing a finding from this session does not by itself call the reviewer back.** The diff the reviewer saw has changed, so apply Step 6's round-two triggers exactly as for a round-one fix: an edited code path, an introduced `critical`, or a `category: "security"` finding earns a further round (never a third, a `critical` excepted); otherwise record the fix and submit. **Once two rounds are spent, a `category: "security"` finding from this session is still never recorded and submitted**: fix it, then re-review it under the `critical` exemption when it is a `critical`, or stop with `review_blocked` / `failure.kind: "review_escalation"`.
+**Fixing a finding from this session does not by itself call the reviewer back.** The diff the reviewer saw has changed, so apply Step 6's round-two triggers exactly as for a round-one fix: an edited code path or an introduced `critical` earns a further round (never a third, a `critical` excepted); otherwise record the fix and submit. A `category: "security"` finding from this session below `critical` never reaches `issues[]`, so the pin cannot see it: its fix earns a further round only by editing a code path, and one whose fix changed no code path (documentation, tests or comments only) is named in `completion_notes` and one line of `completion_summary` as fixed but not re-reviewed. **Once two rounds are spent, a `category: "security"` finding from this session is still never recorded and submitted**: fix it, then re-review it under the `critical` exemption when it is a `critical`, or stop with `review_blocked` / `failure.kind: "review_escalation"`.
 
 **Discovered → report, never block.** Append no issue and flip no verdict — a defect in lines this task did not write says nothing about whether this task followed its `testing_strategy`, and appending one would flip that section. Record it in `completion_notes` **at its exploratory severity**, with the provenance evidence, plus one line of `completion_summary` — labelled by the branch you took and never claiming more than you established: *pre-existing — not introduced by this task* only when you localized the responsible lines outside your change set or showed by a base-ref repro that they predate it, and *provenance undetermined — not attributed to this task* when the change set was undeterminable, the fault site went unidentified, or the lines sat in a path the claim-time dirty baseline lists. (`completion_notes` is persisted only by Stride servers from D188 onward and you cannot tell which version you are talking to; `completion_summary` is required, persisted, and rendered on the Review queue.) When a reviewer ran, add the same one-line advisory to `reviewer_result.testing_strategy.note` **without** changing its `status`. **File a follow-up defect** (`stride-creating-tasks`) so the bug has an owner, and reference its ID in the record; if filing fails or is unavailable, say so in the record — a failed follow-up never blocks this completion.
 
@@ -1016,7 +1167,7 @@ Call `PATCH /api/tasks/:id/complete` with ALL required fields:
 |---|---|---|
 | `review_report` | string | Include when task-reviewer ran; omit when skipped |
 
-**Artifact cleanup, once the completion has succeeded.** The claim hook's task file (`.stride/.task-<IDENTIFIER>.json`, see Step 2) has to go. The hook deletes it when it records the completion. This block covers a completion the hook did not record: a truncated, absent or unparsable response, or a hook that was not running when the completion went through. Run it only after a 2xx response: a 422 leaves the task claimed, and the retry still reads that file. **Write this task's identifier and numeric id into the first two lines** from the claim response, inside the single quotes. Write a value only when it is already a plain token: 1 to 64 letters, digits, `_` or `-` for the identifier, 1 to 20 digits for the id. Otherwise leave the quotes empty, so nothing from the response is ever parsed by the shell. Step 2's `TASK_IDENTIFIER` and `TASK_ID` do not survive Codex's separate shell turns, so a block that read them would delete nothing and say nothing. The file is named by the identifier when that is a plain token and by the numeric id otherwise, so both names are removed, each allow-listed before it reaches a path. The root is found the way the hook finds it, except that the event's `.cwd` the hook falls back on is not visible from a shell, so the block walks up to the first directory holding `.stride.md` instead, and skips aloud when there is none.
+**Artifact cleanup, once the completion has succeeded.** The claim hook's task file (`.stride/.task-<IDENTIFIER>.json`, see Step 2) has to go, and so do Step 6's review-round counter and fix-path baseline (`.stride/.review-rounds-<IDENTIFIER>.json`, `.stride/.review-fixbase-<IDENTIFIER>.txt`). The hook deletes the task file when it records the completion. This block covers a completion the hook did not record: a truncated, absent or unparsable response, or a hook that was not running when the completion went through. Run it only after a 2xx response: a 422 leaves the task claimed, and the retry still reads that file. **Write this task's identifier and numeric id into the first two lines** from the claim response, inside the single quotes. Write a value only when it is already a plain token: 1 to 64 letters, digits, `_` or `-` for the identifier, 1 to 20 digits for the id. Otherwise leave the quotes empty, so nothing from the response is ever parsed by the shell. Step 2's `TASK_IDENTIFIER` and `TASK_ID` do not survive Codex's separate shell turns, so a block that read them would delete nothing and say nothing. The file is named by the identifier when that is a plain token and by the numeric id otherwise, so both names are removed, each allow-listed before it reaches a path. The root is found the way the hook finds it, except that the event's `.cwd` the hook falls back on is not visible from a shell, so the block walks up to the first directory holding `.stride.md` instead, and skips aloud when there is none.
 
 ```bash
 TF_IDENT='<identifier>'
@@ -1034,8 +1185,10 @@ fi
 if [ -z "$ROOT" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ]; then
   echo "task file cleanup: no project .stride/ found; nothing deleted" >&2
 else
-  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.task-$TF_IDENT.json"
-  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.task-$TF_ID.json"
+  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.task-$TF_IDENT.json" \
+    "$ROOT/.stride/.review-rounds-$TF_IDENT.json" "$ROOT/.stride/.review-fixbase-$TF_IDENT.txt"
+  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.task-$TF_ID.json" \
+    "$ROOT/.stride/.review-rounds-$TF_ID.json" "$ROOT/.stride/.review-fixbase-$TF_ID.txt"
 fi
 ```
 

@@ -223,10 +223,13 @@ git rev-parse HEAD > .stride/task-base-ref
 # retry's FIRST round count as the third, which the pin then refuses. Same
 # identifier derivation as the counter write; the unrooted rm is safe only
 # because the name is allow-listed to [A-Za-z0-9_-] before it is used.
+# The fix-path baseline (.review-fixbase-*.txt) goes with it: a stale one
+# would measure this attempt's fixes against another attempt's tree.
 RC_IDENT="$TASK_IDENTIFIER"
 case "$RC_IDENT" in *[!A-Za-z0-9_-]*|"") RC_IDENT="$TASK_ID" ;; esac
 case "$RC_IDENT" in *[!A-Za-z0-9_-]*|"") RC_IDENT="unknown" ;; esac
-rm -f "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-rounds-$RC_IDENT.json"
+rm -f "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-rounds-$RC_IDENT.json" \
+      "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-fixbase-$RC_IDENT.txt"
 ```
 
 ## When Hooks Fail
