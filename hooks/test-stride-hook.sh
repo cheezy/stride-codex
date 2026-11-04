@@ -2740,6 +2740,216 @@ else
     "$(grep -c 'no completion response\|was unparsable' "$TMPDIR_TEST/g9.err" || true)"
 fi
 
+# ============================================================
+# Test Group 10: the claimed task's own file (W2589)
+# ============================================================
+#
+# How each side finds the project root. stride's hook takes CLAUDE_PROJECT_DIR
+# or "."; only its Step 7 cleanup walks up to .stride.md. This port's hook
+# takes CODEX_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then the event's own `.cwd`
+# (10k), and never walks. Its Step 8 backstop takes the same two variables and
+# then walks up to .stride.md, because a shell cannot see the event's `.cwd`;
+# 10r runs that block from a subdirectory.
+
+echo ""
+echo "=== Test Group 10: the claimed task's own file (W2589) ==="
+
+if ! command -v jq > /dev/null 2>&1; then
+  echo "  SKIP: Test Group 10 (jq not available)"
+else
+  g10_proj() { mktemp -d "$TMPDIR_TEST/g10.XXXXXX"; }
+  g10_input() {
+    jq -nc --arg c "$1" --arg r "$2" \
+      '{session_id: "sess-10", tool_input: {command: $c}, tool_response: {stdout: $r}}'
+  }
+  g10_run() {
+    printf '%s' "$2" | CODEX_PROJECT_DIR="$1" \
+      bash "$HOOK_SCRIPT" post > "$TMPDIR_TEST/g10.out" 2> "$TMPDIR_TEST/g10.err"
+  }
+  g10_count() { find "$1/.stride" -name '.task-*' 2>/dev/null | wc -l | tr -d ' '; }
+  G10_CLAIM='curl -X POST https://stride.invalid/api/tasks/claim'
+  G10_DATA='{"id":7,"identifier":"W1","title":"Quote \" and a\nnewline","acceptance_criteria":"one\ntwo"}'
+
+  # 10a: a proven claim writes the data object, unchanged, under .stride/
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" "{\"data\":$G10_DATA}")"
+  assert_eq "10a: the task file holds the data object" "$(printf '%s' "$G10_DATA" | jq -c .)" \
+    "$(cat "$D/.stride/.task-W1.json" 2>/dev/null)"
+  assert_eq "10a: as one line" "1" "$(wc -l < "$D/.stride/.task-W1.json" | tr -d ' ')"
+  assert_eq "10a: and the hook still writes nothing to stdout" "0" \
+    "$(wc -c < "$TMPDIR_TEST/g10.out" | tr -d ' ')"
+
+  # 10b: a hostile identifier falls back to the numeric id and stays inside
+  # .stride/. The `.task-` directory gives `/../../outside` somewhere real to
+  # resolve to, $D/outside.json, so an unchecked name would land there.
+  D=$(g10_proj); mkdir -p "$D/.stride/.task-"
+  g10_run "$D" "$(g10_input "$G10_CLAIM" '{"data":{"id":42,"identifier":"/../../outside"}}')"
+  assert_eq "10b: a hostile identifier is named by its numeric id" "42" \
+    "$(jq -r '.id' "$D/.stride/.task-42.json" 2>/dev/null)"
+  assert_eq "10b: and nothing lands outside .stride/" "absent" \
+    "$([ -e "$D/outside.json" ] && echo present || echo absent)"
+  assert_eq "10b: only the one task file exists" "1" \
+    "$(find "$D/.stride" -type f -name '.task-*' | wc -l | tr -d ' ')"
+
+  # 10c: a non-2xx body writes nothing, even one that names the task outside
+  # a `data` object
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" '{"error":"Task is already claimed","id":7,"identifier":"W1"}')"
+  assert_eq "10c: a failed claim writes no task file" "0" "$(g10_count "$D")"
+
+  # 10d: a truncated stdout cannot prove which task it is, so it writes nothing
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" '{"data":{"id":7,"identifier":"W1","title":"cut of')"
+  assert_eq "10d: a truncated claim writes no task file" "0" "$(g10_count "$D")"
+
+  # 10e: an empty data object writes nothing
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" '{"data":{}}')"
+  assert_eq "10e: an empty data object writes no task file" "0" "$(g10_count "$D")"
+
+  # 10f: the staged temp file never outlives the write
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" "{\"data\":$G10_DATA}")"
+  assert_eq "10f: no temp file is left in .stride/" "0" \
+    "$(find "$D/.stride" -name 'task-file.*' | wc -l | tr -d ' ')"
+
+  # 10g: Step 8 owns the delete, and its block removes both names it may have
+  SKILL_MD="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+  STEP8=$(awk '/^## Step 8:/{f=1} /^## Step 9:/{f=0} f' "$SKILL_MD")
+  assert_contains "10g: SKILL.md Step 8 artifact clear names .stride/.task-" \
+    'rm -f "$ROOT/.stride/.task-$TF_IDENT.json"' "$STEP8"
+  G10_BLOCK=$(printf '%s\n' "$STEP8" | awk '/^\*\*Artifact cleanup/{f=1} f&&/^```bash/{b=1;next} b&&/^```/{exit} b')
+  # The block's first two lines are placeholders the agent writes in; fill
+  # them the same way. Values go in with jq's @sh quoting, never raw.
+  g10_block() {
+    local _i _n
+    _i=$(jq -rn --arg v "$1" '$v | @sh'); _n=$(jq -rn --arg v "$2" '$v | @sh')
+    printf '%s\n' "$G10_BLOCK" | awk -v i="$_i" -v n="$_n" '
+      /^TF_IDENT=\047<identifier>\047$/ {print "TF_IDENT=" i; next}
+      /^TF_ID=\047<numeric id>\047$/ {print "TF_ID=" n; next} {print}'
+  }
+  assert_eq "10g: the block's placeholders are where g10_block expects them" "2" \
+    "$(printf '%s\n' "$G10_BLOCK" | grep -c -e "^TF_IDENT='<identifier>'\$" -e "^TF_ID='<numeric id>'\$")"
+  D=$(g10_proj); mkdir -p "$D/.stride"
+  : > "$D/.stride/.task-W1.json"; : > "$D/.stride/.task-7.json"; : > "$D/.stride/.task-W2.json"
+  ( cd "$D" && CLAUDE_PROJECT_DIR="$D" bash -c "$(g10_block W1 7)" )
+  assert_eq "10g: the Step 8 block deletes this task's file by both names" "W2" \
+    "$(cd "$D/.stride" && ls -A | sed 's/^\.task-//; s/\.json$//' | tr '\n' ' ' | sed 's/ $//')"
+  # A `.task-` directory gives `/../../outside` somewhere real to land, so an
+  # unchecked name would delete $D/outside.json; the allow-lists must refuse it.
+  : > "$D/outside.json"; mkdir -p "$D/.stride/.task-"
+  ( cd "$D" && CLAUDE_PROJECT_DIR="$D" bash -c "$(g10_block /../../outside 7)" )
+  assert_eq "10g: a hostile identifier deletes nothing outside .stride/" "present" \
+    "$([ -e "$D/outside.json" ] && [ -e "$D/.stride/.task-W2.json" ] && echo present || echo absent)"
+  ( cd "$D" && CLAUDE_PROJECT_DIR="$D" bash -c "$(g10_block W9 /../../outside)" )
+  assert_eq "10g: a hostile id deletes nothing outside .stride/" "present" \
+    "$([ -e "$D/outside.json" ] && [ -e "$D/.stride/.task-W2.json" ] && echo present || echo absent)"
+
+  # 10h: an identifier longer than 64 characters falls back to the id
+  LONG=$(printf '%065d' 0 | tr 0 W)
+  G10_LONG_BODY=$(jq -nc --arg i "$LONG" '{data: {id: 9, identifier: $i}}')
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" "$G10_LONG_BODY")"
+  assert_eq "10h: a 65-character identifier is named by its id" "present 1" \
+    "$([ -f "$D/.stride/.task-9.json" ] && echo present || echo absent) $(g10_count "$D")"
+
+  # 10i: a second claim of the same task overwrites, never appends
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" '{"data":{"id":7,"identifier":"W1","title":"first"}}')"
+  g10_run "$D" "$(g10_input "$G10_CLAIM" '{"data":{"id":7,"identifier":"W1","title":"second"}}')"
+  assert_eq "10i: two claims in a row overwrite" "second 1" \
+    "$(jq -r '.title' "$D/.stride/.task-W1.json" 2>/dev/null) $(wc -l < "$D/.stride/.task-W1.json" | tr -d ' ')"
+
+  # 10j: two documents on stdout (something printed after the tee) prove nothing
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" "{\"data\":$G10_DATA}
+null")"
+  assert_eq "10j: a second document on stdout writes no task file" "0" "$(g10_count "$D")"
+
+  # 10k: with no project dir in the environment, the event's own .cwd is the root
+  D=$(g10_proj)
+  jq -nc --arg c "$G10_CLAIM" --arg cwd "$D" \
+    '{cwd: $cwd, tool_input: {command: $c}, tool_response: {stdout: "{\"data\":{\"id\":3,\"identifier\":\"W3\"}}"}}' \
+    | env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR bash "$HOOK_SCRIPT" post > /dev/null 2>&1
+  assert_eq "10k: the .cwd fallback roots the task file" "W3" \
+    "$(jq -r '.identifier' "$D/.stride/.task-W3.json" 2>/dev/null)"
+
+  # 10l: the Bearer token in the command never reaches the file
+  D=$(g10_proj)
+  g10_run "$D" "$(g10_input "$G10_CLAIM -H \"Authorization: Bearer SECRETVALUE\"" "{\"data\":$G10_DATA}")"
+  assert_eq "10l: the token never reaches the task file" "0" \
+    "$(grep -c 'SECRETVALUE\|Bearer' "$D/.stride/.task-W1.json" 2>/dev/null || true)"
+
+  # 10m: a symlink at the destination is refused, not followed
+  D=$(g10_proj); mkdir -p "$D/.stride"; : > "$D/target.json"
+  ln -s "$D/target.json" "$D/.stride/.task-W1.json"
+  g10_run "$D" "$(g10_input "$G10_CLAIM" "{\"data\":$G10_DATA}")"
+  assert_eq "10m: a symlinked task-file path is left alone" "0 link" \
+    "$(wc -c < "$D/target.json" | tr -d ' ') $([ -L "$D/.stride/.task-W1.json" ] && echo link || echo replaced)"
+
+  # 10n: a failed claim leaves an earlier task's file where it was
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" "{\"data\":$G10_DATA}")"
+  g10_run "$D" "$(g10_input "$G10_CLAIM" '{"error":"no claimable task"}')"
+  assert_eq "10n: a failed claim does not touch an earlier file" "W1" \
+    "$(jq -r '.identifier' "$D/.stride/.task-W1.json" 2>/dev/null)"
+
+  # 10o-10q: a recorded completion retires the task file; a 422 does not
+  G10_DONE='curl -X PATCH https://stride.invalid/api/tasks/7/complete'
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" "{\"data\":$G10_DATA}")"
+  : > "$D/.stride/.task-W2.json"
+  g10_run "$D" "$(g10_input "$G10_DONE" '{"data":{"id":7,"identifier":"W1","needs_review":false}}')"
+  assert_eq "10o: a recorded completion deletes this task's file and no other" "absent present" \
+    "$([ -e "$D/.stride/.task-W1.json" ] && echo present || echo absent) $([ -e "$D/.stride/.task-W2.json" ] && echo present || echo absent)"
+  assert_eq "10o: and still writes nothing to stdout" "0" "$(wc -c < "$TMPDIR_TEST/g10.out" | tr -d ' ')"
+  D=$(g10_proj); mkdir -p "$D/.stride/.task-"
+  g10_run "$D" "$(g10_input "$G10_CLAIM" '{"data":{"id":42,"identifier":"/../../outside"}}')"
+  : > "$D/outside.json"
+  g10_run "$D" "$(g10_input "$G10_DONE" '{"data":{"id":42,"identifier":"/../../outside","needs_review":false}}')"
+  assert_eq "10p: the delete uses the claim's naming rule, never the raw identifier" "absent present" \
+    "$([ -e "$D/.stride/.task-42.json" ] && echo present || echo absent) $([ -e "$D/outside.json" ] && echo present || echo absent)"
+  D=$(g10_proj); g10_run "$D" "$(g10_input "$G10_CLAIM" "{\"data\":$G10_DATA}")"
+  g10_run "$D" "$(g10_input "$G10_DONE" '{"errors":{"base":["completion is invalid"]}}')"
+  assert_eq "10q: a 422 completion keeps the task file for the retry" "W1" \
+    "$(jq -r '.identifier' "$D/.stride/.task-W1.json" 2>/dev/null)"
+
+  # 10r-10t: where the Step 8 backstop looks
+  D=$(g10_proj); mkdir -p "$D/.stride" "$D/a/b"; : > "$D/.stride.md"; : > "$D/.stride/.task-W1.json"
+  ( cd "$D/a/b" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR bash -c "$(g10_block W1 7)" 2> "$TMPDIR_TEST/g10.err" )
+  assert_eq "10r: run from a subdirectory, the block finds the root's .stride/" "absent" \
+    "$([ -e "$D/.stride/.task-W1.json" ] && echo present || echo absent)"
+  # 10s walks up from a temp directory, so it means nothing (and could reach a
+  # real project's .stride/) when that directory sits inside a Stride project.
+  # It skips then, and its names are ones no real task carries.
+  D=$(g10_proj); mkdir -p "$D/.stride"; : > "$D/.stride/.task-G10S-x.json"
+  _up=$(dirname "$D"); _inside=no
+  while [ "$_up" != "/" ]; do [ -f "$_up/.stride.md" ] && _inside=yes; _up=$(dirname "$_up"); done
+  if [ "$_inside" = yes ]; then
+    echo "  SKIP: 10s (the temp directory sits inside a Stride project)"
+  else
+    ( cd "$D" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR bash -c "$(g10_block G10S-x 0)" 2> "$TMPDIR_TEST/g10.err" )
+    assert_eq "10s: with no root to find, the block deletes nothing and says so" "present yes" \
+      "$([ -e "$D/.stride/.task-G10S-x.json" ] && echo present || echo absent) $(grep -qF 'nothing deleted' "$TMPDIR_TEST/g10.err" && echo yes || echo no)"
+  fi
+  D=$(g10_proj); E=$(g10_proj); mkdir -p "$D/.stride" "$E/.stride"
+  : > "$D/.stride/.task-W1.json"; : > "$E/.stride/.task-W1.json"
+  ( cd "$E" && CODEX_PROJECT_DIR="$D" CLAUDE_PROJECT_DIR="$E" bash -c "$(g10_block W1 7)" )
+  assert_eq "10t: CODEX_PROJECT_DIR wins, as it does in the hook" "absent present" \
+    "$([ -e "$D/.stride/.task-W1.json" ] && echo present || echo absent) $([ -e "$E/.stride/.task-W1.json" ] && echo present || echo absent)"
+
+  # 10u: the rename never follows a directory at the destination. The checks
+  # run before it, so this is what a directory swapped in afterwards meets.
+  # task_file_rename is lifted out of the hook and run on both of its paths:
+  # perl's rename(2), and the mv fallback with perl taken off PATH.
+  G10_RENAME=$(awk '/^task_file_rename\(\) \{/{f=1} f; f&&/^\}/{exit}' "$HOOK_SCRIPT")
+  G10_NOPERL="$TMPDIR_TEST/g10-noperl"; mkdir -p "$G10_NOPERL"
+  for _t in mv dirname; do ln -sf "$(command -v "$_t")" "$G10_NOPERL/$_t"; done
+  for _path in "$PATH" "$G10_NOPERL"; do
+    _label=perl; [ "$_path" = "$G10_NOPERL" ] && _label=mv
+    D=$(g10_proj); mkdir -p "$D/.stride/.task-W1.json" "$D/elsewhere"
+    ln -s "$D/elsewhere" "$D/.stride/.task-W2.json"
+    printf 'x\n' > "$D/.stride/t1"; printf 'y\n' > "$D/.stride/t2"
+    ( PATH="$_path"; eval "$G10_RENAME"
+      task_file_rename "$D/.stride/t1" "$D/.stride/.task-W1.json"; echo "dir=$?"
+      task_file_rename "$D/.stride/t2" "$D/.stride/.task-W2.json"; echo "link=$?" ) > "$TMPDIR_TEST/g10.rn" 2>/dev/null
+    assert_eq "10u ($_label): a directory at the destination is refused" "dir=1" \
+      "$(grep '^dir=' "$TMPDIR_TEST/g10.rn")"
+    assert_eq "10u ($_label): a symlink to a directory is replaced, not followed" "0 regular" \
+      "$(ls -A "$D/elsewhere" | wc -l | tr -d ' ') $([ -f "$D/.stride/.task-W2.json" ] && [ ! -L "$D/.stride/.task-W2.json" ] && echo regular || echo other)"
+  done
+fi
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"
