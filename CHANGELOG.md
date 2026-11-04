@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.40.0] - 2026-11-04
 
 ### Changed — background prose leaves the completing-tasks skill and the reviewer prompt (W2597)
 
@@ -53,6 +53,15 @@ When the claim hook has left this task's `.stride/.task-<IDENTIFIER>.json`, the 
 After a claim, the hook now saves the response's `data` object, compact and otherwise as the server sent it, to `.stride/.task-<IDENTIFIER>.json` under the project root. A later dispatch can then name that file rather than retyping the task into its prompt, which is where a reworded acceptance criterion creeps in and a `/complete` comes back 422.
 
 The hook writes only when this call's own output is a single JSON document carrying a non-empty `data` object. A failed claim, a truncated output, an empty `data` or a second document printed after the response all write nothing. The file is staged in `.stride/` and renamed into place. Its name is the identifier when that is 1 to 64 letters, digits, `_` or `-`, and the numeric id otherwise, so a hostile identifier cannot reach a path outside `.stride/`. A symlink or other non-regular file at the destination is left alone, and the final rename never follows a directory that appears there after those checks. When the hook records the completion, it deletes the file, naming it by the same rule from the completion's own response; a 422 leaves it for the retry. Step 8 of `stride-workflow` gains a cleanup block for a completion the hook did not record, such as one whose response was truncated: the agent writes the task's identifier and id into it in single quotes, and only when each is a plain token, since shell variables do not last between Codex turns. It finds the project root from `CODEX_PROJECT_DIR`, `CLAUDE_PROJECT_DIR` or the nearest `.stride.md` above the working directory. The file's contents are task text, to be read as data. Test Group 10 covers the write, the fallbacks, each case that writes nothing, both deletes and the rename.
+
+### Not ported from G446–G448 — what this release leaves out, and why
+
+stride's batch has twelve fixes. The entries above port eight of them; these four are left out, each for the reason given, so that a missing fix reads as decided rather than forgotten.
+
+- **W2250, dispatcher mode as the default: not applicable.** It hands each task to stride's `task-runner` agent, and this port has no such agent. Every task still runs in the main loop.
+- **W2254, reading the key files while the explorer works: not applicable.** The Codex documentation does not say whether a `task-explorer` call gives the turn back before its result arrives, and no Codex CLI was installed to find out, so `stride-subagent-workflow` Phase 1 waits for the explorer (W2594, `docs/HOOK_RESEARCH.md`).
+- **W2255, letting the Stop gate allow a stop while an agent runs: not applicable.** The documented `Stop` input carries no list of running agents, so the permit would have nothing to read, and its time bound nothing to bound. W2255 adds nothing to the gate or its registration (W2594, `docs/HOOK_RESEARCH.md`); the gate's one change in this release is W2595's slim-view call above, which needs the hook approved again.
+- **W2259, measuring the batch's effect: not applicable.** stride measured itself on Claude Code. Nothing was measured on Codex CLI, so this release claims no saving in tokens or time.
 
 ## [1.39.0] - 2026-10-01
 
