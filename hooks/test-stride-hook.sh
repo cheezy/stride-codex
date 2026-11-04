@@ -3562,6 +3562,84 @@ assert_eq "13k: nothing after enrichment says to claim the task" "0" \
 assert_eq "13l: no dispatcher size-gate fetch was added" "0 0" \
   "$(grep -c 'Step 1.5' "$G13_WF" || true) $(grep -ci 'size gate' "$G13_WF" || true)"
 
+# ============================================================
+# Test Group 14: rationale moved out of the orchestrator skill (W2596)
+# ============================================================
+#
+# Background prose left skills/stride-workflow/SKILL.md for
+# docs/orchestrator-rationale.md, with a one-line pointer at each original
+# site. These checks keep the pointers and the doc in step, and keep the rules,
+# canon anchors and executed blocks in the skill.
+
+echo ""
+echo "=== Test Group 14: orchestrator rationale moved to docs/ (W2596) ==="
+
+G14_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G14_DOC="$PORT_ROOT/docs/orchestrator-rationale.md"
+
+# 14a: the doc lives under docs/, never where Codex registers agents or the
+# installers copy skills
+assert_eq "14a: the rationale doc exists under docs/ and nowhere under agents/ or skills/" "yes " \
+  "$([ -f "$G14_DOC" ] && echo yes || echo no) $(find "$PORT_ROOT/agents" "$PORT_ROOT/skills" -name 'orchestrator-rationale.md' 2>/dev/null)"
+
+# Section titles as the pointers name them: the text after the doc path and
+# the section sign, up to the full stop or closing bracket that ends it. A
+# pointer whose title runs on into the next sentence therefore names no
+# section, and the dangling check below fails on it.
+G14_PTRS=$(grep -o -- '`docs/orchestrator-rationale\.md` § [^.)`]*' "$G14_WF" | sed 's/^`docs\/orchestrator-rationale\.md` § //')
+G14_SECS=$(grep '^## ' "$G14_DOC" 2>/dev/null | sed 's/^## //')
+
+# 14b: every pointer names a section that exists, and every section has a pointer
+G14_DANGLING=0
+while IFS= read -r t; do
+  [ -n "$t" ] || continue
+  printf '%s\n' "$G14_SECS" | grep -qxF -- "$t" || G14_DANGLING=$((G14_DANGLING + 1))
+done <<< "$G14_PTRS"
+G14_ORPHAN=0
+while IFS= read -r t; do
+  [ -n "$t" ] || continue
+  printf '%s\n' "$G14_PTRS" | grep -qxF -- "$t" || G14_ORPHAN=$((G14_ORPHAN + 1))
+done <<< "$G14_SECS"
+assert_eq "14b: no pointer names a missing section" "0" "$G14_DANGLING"
+assert_eq "14b: no section is left without a pointer" "0" "$G14_ORPHAN"
+assert_eq "14b: one pointer per section, and there are sections" "yes" \
+  "$(n=$(printf '%s\n' "$G14_PTRS" | grep -c .); m=$(printf '%s\n' "$G14_SECS" | grep -c .); [ "$n" -eq "$m" ] && [ "$m" -gt 0 ] && echo yes || echo "no ($n pointers, $m sections)")"
+
+# 14c: moved, not copied. The opening of each moved passage is gone from the
+# skill: its first sixty characters, past every lead-in the move added.
+G14_DUP=0
+while IFS= read -r body; do
+  frag=$(printf '%s' "$body" | cut -c1-60)
+  [ -n "$frag" ] || continue
+  grep -qF -- "$frag" "$G14_WF" && G14_DUP=$((G14_DUP + 1))
+done < <(awk '/^## /{getline; getline; getline; getline; print}' "$G14_DOC" 2>/dev/null)
+assert_eq "14c: no moved passage is still in the skill" "0" "$G14_DUP"
+# Three sections open with wording the move rephrased, so their first sixty
+# characters say nothing about the skill. Their original openings must be gone.
+assert_eq "14c: the three rephrased passages' original openings are gone too" "0 0 0" \
+  "$(grep -cF 'That is not a general property of orchestrators' "$G14_WF" || true) $(grep -cF "the D132 incident where a reviewer saw another machine's completed task" "$G14_WF" || true) $(grep -cF 'this is exactly how a re-review round on task W1099' "$G14_WF" || true)"
+
+# 14d: every canon anchor is still in the skill exactly once, with its
+# back-reference naming the canon file and the version-bump obligation
+G14_ANCH=""
+for a in decision-matrix-authority row-precedence review-round-cap reason-code-vocabulary dispatch-count-telemetry; do
+  G14_ANCH="$G14_ANCH $(grep -c "^<!-- canon:$a v[0-9]* -->$" "$G14_WF" || true)"
+done
+assert_eq "14d: each canon anchor appears exactly once" " 1 1 1 1 1" "$G14_ANCH"
+assert_eq "14d: the back-references still name port-canon.md and the version bump" "yes yes" \
+  "$(grep -q 'entry `decision-matrix-authority` in `stride/docs/port-canon.md`' "$G14_WF" && echo yes || echo no) $(grep -c 'owes a version bump' "$G14_WF" | awk '{print ($1 >= 3) ? "yes" : "no"}')"
+assert_eq "14d: the doc carries no canon anchor" "0" "$(grep -c '<!-- canon:' "$G14_DOC" || true)"
+
+# 14e: executed blocks and the rules split out of moved passages stay inline
+assert_eq "14e: the round-cap assert and the Step 8 artifact clear are inline" "yes yes" \
+  "$(grep -qF 'round_cap_ok = _round > 0 and (' "$G14_WF" && echo yes || echo no) $(grep -qF '[ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.task-$TF_IDENT.json"' "$G14_WF" && echo yes || echo no)"
+assert_eq "14e: the rules kept from split passages are still in the skill" "yes yes yes yes" \
+  "$(grep -qF 'Step 0 is the only point where addressing the operator is sanctioned' "$G14_WF" && echo yes || echo no) $(grep -qF 'A small task carrying 3+ key_files or 3+ acceptance-criteria lines is a mis-labelling signal' "$G14_WF" && echo yes || echo no) $(grep -qF '**Do not invent a token count — record what is actually measurable.**' "$G14_WF" && echo yes || echo no) $(grep -qF 'Proceed directly from Step 4 to Step 6.' "$G14_WF" && echo yes || echo no)"
+
+# 14f: the doc says it holds no rule, and carries no credential-shaped text
+assert_eq "14f: the doc disclaims any rule and holds no token-shaped text" "yes 0" \
+  "$(grep -qF '**Nothing here is a rule.**' "$G14_DOC" && echo yes || echo no) $(grep -ciE 'stride_(dev|live|prod)_[A-Za-z0-9]|Bearer [A-Za-z0-9]' "$G14_DOC" || true)"
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"
