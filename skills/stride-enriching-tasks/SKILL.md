@@ -200,6 +200,8 @@ Combine all discovered fields into the final task specification.
 - [ ] No invented file paths — every entry is a path located via search, glob, or read
 - [ ] All 18 items above were considered for this task (none silently skipped) — for the one optional item, `behaviour_test_matrix`, a deliberate omission counts as considered
 
+**Cross-field consistency pass.** Enriching by hand through this walkthrough, without the `task-enricher` agent, does not skip the six checks that agent runs once this checklist is done, which read the fields against one another: run them as `agents/task-enricher.md` Phase 4 states them before you submit.
+
 ## API Integration
 
 ### Submitting the Enriched Task

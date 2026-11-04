@@ -3797,6 +3797,118 @@ assert_eq "16g: the decomposer's field table lists the matrix as written by defa
 assert_eq "16h: the creation skills no longer call the matrix optional-only" "no no no" \
   "$(g16_in '**Optional field.** Omit it entirely when you have nothing concrete to record' "$(g16_flat "$G16_CT")") $(g16_in 'Omitting it on a nested task is always fine' "$(g16_flat "$G16_CG")") $(g16_in 'Populate it per nested task only where you have concrete behaviours' "$(g16_flat "$G16_CG")")"
 
+# ============================================================
+# Test Group 17: the enricher and decomposer run a cross-field consistency
+# pass before returning a task (W2600)
+# ============================================================
+#
+# Each field was checked on its own, never against the others, so tasks went
+# out contradicting themselves. Both agents now state six checks inline, the
+# three creation skills point hand-written tasks at them, and neither the
+# enricher's 18-item checklist nor the decomposer's step order is disturbed.
+
+echo ""
+echo "=== Test Group 17: cross-field consistency pass in enricher and decomposer (W2600) ==="
+
+G17_EN="$PORT_ROOT/agents/task-enricher.md"
+G17_DC="$PORT_ROOT/agents/task-decomposer.md"
+G17_CT="$PORT_ROOT/skills/stride-creating-tasks/SKILL.md"
+G17_CG="$PORT_ROOT/skills/stride-creating-goals/SKILL.md"
+G17_ET="$PORT_ROOT/skills/stride-enriching-tasks/SKILL.md"
+# g17_slice <file> <start-line-text> <stop-line-text>: the lines from the first
+# line containing start up to (not including) the next line containing stop,
+# flattened to one space-separated line
+g17_slice() {
+  awk -v s="$2" -v e="$3" 'p && index($0, e) { exit } index($0, s) { p = 1 } p' "$1" | tr '\n' ' ' | tr -s ' '
+}
+# g17_count <needle> <haystack>: how many times needle occurs
+g17_count() {
+  local h="$2" n=0
+  while [ -n "$1" ]; do
+    case "$h" in *"$1"*) n=$((n + 1)); h="${h#*"$1"}" ;; *) break ;; esac
+  done
+  echo "$n"
+}
+G17_ENP=$(g17_slice "$G17_EN" '### Cross-Field Consistency Pass' '## Handling Defect Tasks')
+G17_DCP=$(g17_slice "$G17_DC" '### Step 7: Cross-Field Consistency Pass per Child Task' '## Task Sizing Heuristics')
+
+# g17_checks <label> <slice>: the six checks and the rules both agents share
+g17_checks() {
+  local label="$1" f="$2" c
+  for c in '1. **Verification scope.**' '2. **No contradiction.**' '3. **Prescribed patterns tested.**' \
+           '4. **Precedence stated.**' '5. **One line per criterion.**' '6. **External contracts named.**'; do
+    assert_eq "17a: $label: states check '$c' exactly once" "1" "$(g17_count "$c" "$f")"
+  done
+  assert_eq "17a: $label: a verification step never checks less than its criterion" "1" \
+    "$(g17_count 'No verification step checks less than the acceptance criterion it stands for' "$f")"
+  assert_eq "17b: $label: check 3 tests a prescribed pattern by reading alone and never runs it" "1 1 1" \
+    "$(g17_count 'by reading alone' "$f") $(g17_count 'Do not run the prescribed command' "$f") $(g17_count 'do not execute anything with side effects' "$f")"
+  assert_eq "17c: $label: check 4 never settles a contradiction by dropping one side" "1" \
+    "$(g17_count 'A contradiction is never settled by quietly deleting either instruction' "$f")"
+  assert_eq "17d: $label: check 5 keeps each criterion on one line because the reviewer counts lines" "1" \
+    "$(g17_count 'The reviewer treats every non-blank line of `acceptance_criteria` as its own criterion' "$f")"
+  assert_eq "17e: $label: check 6 cites file:line and never copies a credential, token or hostname" "1 1" \
+    "$(g17_count 'with the `file:line` you found it at' "$f") $(g17_count 'Never copy a credential, a token or an internal hostname' "$f")"
+  assert_eq "17f: $label: no verification steps still runs the other five, and no check blocks" "1 1" \
+    "$(g17_count 'With no verification steps, check 1 has nothing to read, and the other five still run' "$f") $(g17_count 'No check ever holds back the' "$f")"
+}
+g17_checks "task-enricher" "$G17_ENP"
+g17_checks "task-decomposer" "$G17_DCP"
+
+# 17c: check 2's rule and check 4's coverage of two conflicting pitfalls are
+# worded per agent (a task in one, a child in the other), so pin them here
+assert_eq "17c: task-enricher: check 2 bars what or patterns_to_follow from contradicting a pitfall or security consideration" "1" \
+  "$(g17_count 'Nothing in `what` or `patterns_to_follow` tells the implementer to do what a pitfall or a security consideration forbids' "$G17_ENP")"
+assert_eq "17c: task-decomposer: check 2 bars what or patterns_to_follow from contradicting a pitfall or security consideration" "1" \
+  "$(g17_count "Nothing in a child's \`what\` or \`patterns_to_follow\` tells the implementer to do what one of its pitfalls or security considerations forbids" "$G17_DCP")"
+assert_eq "17c: task-enricher: check 4 covers two pitfalls that conflict" "1" \
+  "$(g17_count '(a pair of pitfalls, a pitfall against a pattern, or a criterion against a pattern)' "$G17_ENP")"
+assert_eq "17c: task-decomposer: check 4 covers two pitfalls that conflict" "1" \
+  "$(g17_count 'Wherever two instructions in a child can pull in different directions, its own pitfalls included' "$G17_DCP")"
+
+# 17g: where each agent records a check it cannot evaluate, and the enricher's
+# Phase-2-only rule for technical_details names open_questions as its exception
+assert_eq "17g: the enricher records an unevaluable check in technical_details.open_questions" "1" \
+  "$(g17_count 'each open question goes into `technical_details.open_questions`' "$G17_ENP")"
+assert_eq "17g: the enricher's Phase-2-only rule names open_questions as its exception" "1" \
+  "$(g17_count '`open_questions` is the one key exempt from that' "$(g17_slice "$G17_EN" '### Optional: Capture Technical Details' '## Phase 3')")"
+assert_eq "17g: the enricher's output contract lists open_questions" "1" \
+  "$(g17_count 'plus `open_questions` (an array of one-sentence strings)' "$(tr '\n' ' ' < "$G17_EN")")"
+assert_eq "17g: the decomposer records an unevaluable check as an Open question sentence" "1" \
+  "$(g17_count 'beginning `Open question:`' "$G17_DCP")"
+assert_eq "17g: neither agent rewrites the human's title, type or description" "1 1" \
+  "$(g17_count "never the human's \`title\`, \`type\` or \`description\`" "$G17_ENP") $(g17_count 'is never rewritten by this pass' "$G17_DCP")"
+
+# 17h: placement and numbering. The enricher's pass follows its unchanged
+# 18-item checklist and Phase 4 names it; the decomposer's steps still run
+# 1 to 7 in order and nothing in it points past Step 7.
+assert_eq "17h: the enricher checklist still has exactly 18 items" "18" \
+  "$(awk '/Pre-submission checklist \(18 items\)/ { p = 1; next } p && /^### Cross-Field Consistency Pass/ { exit } p && /^- \[ \]/ { n++ } END { print n + 0 }' "$G17_EN")"
+assert_eq "17h: the enricher's pass sits after the checklist and before defect handling" "yes" \
+  "$(awk '/All 18 items above were considered/ { a = NR } /^### Cross-Field Consistency Pass/ { b = NR; nb++ } /^## Handling Defect Tasks/ { c = NR } END { print (nb == 1 && a && b > a && c > b) ? "yes" : "no" }' "$G17_EN")"
+assert_eq "17h: the enricher's Phase 4 summary names the pass" "1" \
+  "$(g17_count 'run the 18-item checklist, then the cross-field consistency pass' "$(tr '\n' ' ' < "$G17_EN")")"
+assert_eq "17h: the decomposer's steps are numbered 1 to 7 in order" "1 2 3 4 5 6 7" \
+  "$(sed -n 's/^### Step \([0-9]*\):.*/\1/p' "$G17_DC" | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "17h: no step reference in the decomposer points past Step 7" "" \
+  "$(grep -o 'Step [0-9][0-9]*' "$G17_DC" | awk '{ if ($2 + 0 > 7) print }')"
+assert_eq "17h: each agent names the other's copy of the pass" "1 1" \
+  "$(g17_count '`agents/task-decomposer.md` Step 7 holds the same six checks' "$G17_ENP") $(g17_count "The enricher's Phase 4 in \`agents/task-enricher.md\` holds the same six checks" "$G17_DCP")"
+
+# 17i: the three creation skills each point a hand-written task at the pass,
+# once, naming the agent file and section that state it
+g17_pointer() {
+  local label="$1" file="$2" target="$3" f
+  f=$(tr '\n' ' ' < "$file" | tr -s ' ')
+  assert_eq "17i: $label carries the pointer exactly once, naming $target" "1 1" \
+    "$(g17_count '**Cross-field consistency pass.**' "$f") $(g17_count "run them" "$(g17_slice "$file" '**Cross-field consistency pass.**' '##')")"
+  assert_eq "17i: $label's pointer names $target" "1" \
+    "$(g17_count "$target" "$(g17_slice "$file" '**Cross-field consistency pass.**' '##')")"
+}
+g17_pointer "creating-tasks" "$G17_CT" '`agents/task-enricher.md` Phase 4'
+g17_pointer "creating-goals" "$G17_CG" '`agents/task-decomposer.md` Step 7'
+g17_pointer "enriching-tasks" "$G17_ET" '`agents/task-enricher.md` Phase 4'
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"

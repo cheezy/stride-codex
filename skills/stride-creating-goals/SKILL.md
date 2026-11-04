@@ -250,6 +250,8 @@ CORRECT:
 - Include patterns_to_follow and pitfalls
 - Provide security_considerations as an array of strings
 
+**Cross-field consistency pass.** A nested task you write without the `task-decomposer` agent still owes the six checks it runs on each child before returning, which read a task's fields against one another: run them on every nested task as `agents/task-decomposer.md` Step 7 states them before you submit the batch.
+
 **The five review_queue-scored fields are the minimum bar for every nested task:**
 
 - `acceptance_criteria` — newline-separated string; the implementing agent's definition of done. **Blank → empty pill on the review_queue.**
