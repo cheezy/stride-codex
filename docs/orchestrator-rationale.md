@@ -34,6 +34,18 @@ A base captured before the pull is how D132 happened: a reviewer saw another mac
 
 This item previously stated its own trigger ("medium+ OR 3+ key_files OR 3+ acceptance criteria lines"), which could fire on a row whose `Plan` column says Skip — the `small, 2+ key_files` row being the collision.
 
+## Why New Tests Need Break-It Evidence
+
+*From `skills/stride-workflow/SKILL.md`, Step 4, the break-it procedure.*
+
+In stride the same mistake kept coming back, a test that still passed with its code broken: one task's assertions were all satisfied by prose elsewhere in the file (W2035), an `ok()` placed outside its loop passed unconditionally (W2036), a cap went from 8 to 1000 with the whole suite still passing (W2034), and an unclosed quote hid two assertions (W2171). Review fix rounds slipped back into it as well (W2181, D337). Each was found only because a reviewer happened to mutate the code by hand. The reviewer never runs code, so the evidence has to come from the implementer.
+
+The tree hash adds content to `git status`, because at Step 4 every file you touched is already modified: a break left inside one of them does not change its status line, but it does change the diff the hash covers. The hash stays in your notes rather than a file because a file in the tree would change the very thing it records.
+
+The procedure lives inline in Step 4 rather than in a sibling file, as it does in stride, because `install.sh` and `install.ps1` copy only each skill's `SKILL.md`; a sibling file would never reach an install.
+
+What the record cannot do: the reviewer can check that each entry fits the diff, that its break lands on what the test asserts, but it cannot rerun one, so an entry is the implementer's word. What it does rule out is a test that goes in without anyone ever having watched it fail.
+
 ## Why Step 5 Is Blank
 
 *From `skills/stride-workflow/SKILL.md`, Step 5.*

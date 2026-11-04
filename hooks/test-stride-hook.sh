@@ -4133,6 +4133,107 @@ assert_eq "19h: the old coverage-only bullets are gone" "0 0" \
 assert_eq "19h: step 4 still records the testing_strategy verdict" "1" \
   "$(g19_count 'Record the `testing_strategy` section verdict in the JSON block' "$G19_S4")"
 
+# ============================================================
+# Test Group 20: proof that each new or changed test can fail, checked by
+# the task-reviewer (W2603)
+# ============================================================
+#
+# A test that still passes once its code is broken protects nothing, and the
+# reviewer cannot run code to find out. Step 4 now has the implementer break
+# each new or changed test and record what happened; the record reaches the
+# reviewer as break_it. Every phrase below is counted in its own slice, so a
+# copy elsewhere in a file cannot satisfy it.
+
+echo ""
+echo "=== Test Group 20: proof that new and changed tests can fail (W2603) ==="
+
+G20_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G20_RV="$PORT_ROOT/agents/task-reviewer.md"
+G20_SW="$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md"
+# g20_count <needle> <haystack>: how many times needle occurs
+g20_count() {
+  local h="$2" n=0
+  while [ -n "$1" ]; do
+    case "$h" in *"$1"*) n=$((n + 1)); h="${h#*"$1"}" ;; *) break ;; esac
+  done
+  echo "$n"
+}
+G20_S4=$(awk '/^## Step 4: Implementation/ { p = 1 } p && /^## Step 5:/ { exit } p' "$G20_WF")
+G20_BI=$(printf '%s\n' "$G20_S4" | awk '/^### Break-it: prove each new or changed test can fail/ { p = 1 } p && /^\*\*This is the only step where you write code\./ { exit } p' | tr '\n' ' ' | tr -s ' ')
+G20_S6=$(awk '/^## Step 6: Code Review/ { p = 1 } p && /^\*\*Re-review and follow-up rounds/ { exit } p' "$G20_WF" | grep -- '^- \*\*`break_it`')
+G20_RVI=$(grep -- '^You may also receive \*\*`break_it`\*\*' "$G20_RV")
+G20_RV4=$(awk '/^4\. \*\*Testing Strategy Alignment\*\*/ { p = 1 } p && /^5\. \*\*/ { exit } p' "$G20_RV" | tr '\n' ' ' | tr -s ' ')
+G20_P3=$(awk '/^## Phase 3: Code Review/ { p = 1 } p && /^### Extracting the structured review block/ { exit } p' "$G20_SW" | tr '\n' ' ' | tr -s ' ')
+
+assert_eq "20a: the break-it subsection sits once in the skill, inside Step 4" "1 1" \
+  "$(grep -c '^### Break-it: prove each new or changed test can fail$' "$G20_WF") $(printf '%s\n' "$G20_S4" | grep -c '^### Break-it: prove each new or changed test can fail$')"
+assert_eq "20a: Step 4 states break, fail, restore, pass for each added or changed test" "1 1" \
+  "$(g20_count 'Each test this diff adds or changes has to be seen red: break what it protects, run it and watch it fail, put the edit back, then run it again and watch it pass' "$G20_BI") $(g20_count 'The edit must reach what the test asserts' "$G20_BI")"
+assert_eq "20b: no-new-tests and formatting-only diffs need no entries" "1" \
+  "$(g20_count 'With no new or changed test there are no entries, and a test that was only reformatted (whitespace, wrapping, comments, meaning untouched) has none either' "$G20_BI")"
+assert_eq "20b: a deleted test needs no entry, in Step 4 and in the reviewer" "1 1" \
+  "$(g20_count 'A test the diff deletes needs no entry' "$G20_BI") $(g20_count 'A test changed only in formatting, or deleted, needs no entry' "$G20_RV4")"
+assert_eq "20c: the content-hashing snapshot covers status, diff and untracked files" "1" \
+  "$(g20_count 'git status --porcelain --untracked-files=all; git diff HEAD --binary; git ls-files --others --exclude-standard -z | xargs -0 git hash-object --' "$G20_BI")"
+assert_eq "20c: the content-hashing snapshot must match before the reviewer is invoked" "1 1" \
+  "$(g20_count 'Run the hash again before the reviewer is invoked, and before any commit or hook: it must print the same value' "$G20_BI") $(g20_count 'Invoke only once the Step 4 hash matches' "$G20_S6")"
+assert_eq "20d: restores never use a work-dropping git command" "1 1" \
+  "$(g20_count 'Restore by reversing that same edit by hand' "$G20_BI") $(g20_count 'Never use `git checkout`, `git restore`, `git stash` or `git reset`' "$G20_BI")"
+assert_eq "20e: not_broken_reason is defined in Step 4 and in the reviewer input" "1 1" \
+  "$(g20_count 'A test that cannot be broken without a side effect outside the repository is recorded, never skipped:' "$G20_BI") $(g20_count 'carries `null` for `break` and both booleans, plus a single-line `not_broken_reason`' "$G20_RVI")"
+assert_eq "20e: breaks stay inside the repository, with no network" "1" \
+  "$(g20_count 'No destructive command, no network, no remote, registry or Stride API call' "$G20_BI")"
+assert_eq "20f: text pins count occurrences in the slice, not lines" "1 1" \
+  "$(g20_count '**Text pins count occurrences, not lines.**' "$G20_BI") $(g20_count "grep -oF -- '<phrase>' | wc -l" "$G20_BI")"
+assert_eq "20g: the Step 6 invocation defines break_it with its four fields" "1 1" \
+  "$(printf '%s\n' "$G20_S6" | grep -c .) $(g20_count 'each with `test`, `break`, `failed_when_broken` and `passes_when_restored`' "$G20_S6")"
+assert_eq "20g: break_it is kept apart from review_round.fixes[]" "1 1" \
+  "$(g20_count 'never folded into `review_round.fixes[]`' "$G20_S6") $(g20_count 'stays apart from `review_round.fixes[]`' "$G20_P3")"
+assert_eq "20h: the reviewer raises an Important issue for a missing or missed break" "1 1" \
+  "$(g20_count 'Every new or changed test in the diff needs an entry, and one without is an Important `issues[]` entry under `category: "testing"`' "$G20_RV4") $(g20_count 'So is an entry whose break does not reach the behaviour that test asserts' "$G20_RV4")"
+assert_eq "20h: a weak not_broken_reason and a recurring pinned phrase are both caught" "1 1" \
+  "$(g20_count 'a `not_broken_reason` that names nothing outside the repository the break would disturb' "$G20_RV4") $(g20_count 'breaking one copy leaves the test passing' "$G20_RV4")"
+assert_eq "20i: re-review rounds need fresh entries for touched tests" "1 1" \
+  "$(g20_count 'From round 2 on, a test touched by any listed fix needs a new entry' "$G20_RV4") $(g20_count 'On round two, re-break each test a fix touched' "$G20_S6")"
+assert_eq "20j: no block key is added and schema_version is unchanged" "1 1" \
+  "$(g20_count 'The check adds no block key and leaves `schema_version` alone' "$G20_RV4") $(grep -c '`schema_version`: string. Always `"1\.7"`' "$G20_RV")"
+assert_eq "20j: the reviewer input is defined once, and absent means no entries" "1 1" \
+  "$(printf '%s\n' "$G20_RVI" | grep -c .) $(g20_count '**No `break_it` at all means there are no entries.**' "$G20_RVI")"
+assert_eq "20k: the subagent-workflow carries the mirror line" "1" \
+  "$(g20_count 'Pass **`break_it`** beside that list, never inside it' "$G20_P3")"
+assert_eq "20k: the self-review checklist checks the entries too" "1" \
+  "$(grep -c '^- \[ \] Break-it -- does every added or changed test have a Step 4 entry' "$G20_WF")"
+assert_eq "20l: the procedure is inline, with no sibling file an install would drop" "" \
+  "$(find "$PORT_ROOT/skills" "$PORT_ROOT/agents" -name 'test-non-vacuity.md' 2>/dev/null)"
+
+assert_eq "20n: re-breaks after fixes get a fresh hash that must match before the re-review or Step 7" "1 1" \
+  "$(g20_count 'hash the tree afresh once the fixes are in and before the first re-break, and match that new hash before the re-review or Step 7' "$G20_S6") $(g20_count 'the Step 4 hash no longer describes the fixed tree' "$G20_S6")"
+assert_eq "20n: no break goes in a gitignored file the hash cannot see" "1" \
+  "$(g20_count 'no break in a gitignored file, which the hash cannot see' "$G20_BI")"
+assert_eq "20n: a properly recorded not_broken_reason entry is not flagged for its null observations" "1" \
+  "$(g20_count 'a broken entry (one without `not_broken_reason`) where either observation is anything but `true`' "$G20_RV4")"
+
+# 20m: the snapshot command, taken from the skill, catches a break left
+# inside a file that was already modified and matches again once it is undone
+G20_SNAP=$(printf '%s\n' "$G20_BI" | sed -n 's/.*`\(snap() {[^`]*\)`.*/\1/p')
+G20_TMP=$(mktemp -d 2>/dev/null || echo "")
+if [ -n "$G20_SNAP" ] && [ -n "$G20_TMP" ]; then
+  G20_R=$(cd "$G20_TMP" && git init -q . && printf 'keep\n' > f && git add f \
+    && git -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm init \
+    && printf 'mine\n' > f && printf 'new\n' > u \
+    && a=$(bash -c "$G20_SNAP") && printf 'broken\n' > f && b=$(bash -c "$G20_SNAP") \
+    && printf 'mine\n' > f && c=$(bash -c "$G20_SNAP") && printf 'x\n' > u && d=$(bash -c "$G20_SNAP") \
+    && printf 'new\n' > u && e=$(bash -c "$G20_SNAP") \
+    && { [ "$a" != "$b" ] && echo moved || echo same; } \
+    && { [ "$a" = "$c" ] && [ "$a" = "$e" ] && echo restored || echo differs; } \
+    && { [ "$a" != "$d" ] && echo untracked || echo missed; })
+  rm -rf "$G20_TMP"
+else
+  G20_R="snapshot command not found in Step 4"
+fi
+assert_eq "20m: the snapshot hash moves on a break in a modified file and in an untracked file, and matches after restore" \
+  "moved restored untracked" "$(printf '%s' "$G20_R" | tr '\n' ' ' | sed 's/ $//')"
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"

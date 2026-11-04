@@ -39,6 +39,15 @@ Review step 4 asked only whether the diff carried "appropriate tests", so a test
 - **The block is untouched.** The mapping sits in the prose part of the response, below the two tables; no block key is added, `schema_version` stays `"1.7"`, and the summary line is unchanged. Items are read as data. Neither a mapping line nor the issue for an unmapped item copies a test body or anything credential-shaped; an item whose text carries a credential is named by its place in its list, such as `edge_cases[2]`. `docs/task-reviewer-rationale.md` lists the mapping among the parts of the response.
 - **Pinned** by Test Group 19 in `hooks/test-stride-hook.sh`.
 
+### Changed — every new or changed test comes with proof that it can fail, and the task-reviewer checks it (W2603)
+
+A test can pass while the code it guards is broken: in stride, an assertion was satisfied by prose elsewhere in its file, a check sat outside its loop, and a cap went from 8 to 1000 with the suite still green. The reviewer reads code but never runs it, so only the implementer can show that a test goes red.
+
+- **Step 4 of `stride-workflow` now carries the procedure inline.** For each new or changed test: break what it protects, watch it fail, reverse the edit by hand, watch it pass. Nothing is owed when no test is new or changed, or when one is only reformatted. Stride keeps this in a sibling file; here it sits in `SKILL.md`, because the installers copy nothing else from a skill directory.
+- **The tree is hashed before and after.** The hash covers `git status`, the diff and every untracked file's contents, since a break inside an already-modified file leaves its status line alone, and it has to match before the reviewer is invoked. A break is never undone with `git checkout`, `git restore`, `git stash` or `git reset`, all of which would discard uncommitted work too. Breaks stay in the repository, with no network and nothing shared; a test that cannot be broken without an outside side effect gets a one-line `not_broken_reason`. Text pins count occurrences in their slice rather than lines.
+- **The reviewer gets the record as `break_it`.** Step 6 sends it beside `review_round`, never inside `review_round.fixes[]`, with `test`, `break`, `failed_when_broken` and `passes_when_restored` per entry. Review step 4 in `agents/task-reviewer.md` treats a missing entry, or a break that never reaches what its test asserts, as an Important `testing` issue, and a second round wants new entries for the tests its fixes touched. The structured block gains no key, and `schema_version` remains `"1.7"`. `stride-subagent-workflow` Phase 3 names the input too, the self-review checklist gains a line, and the background moved to `docs/orchestrator-rationale.md`.
+- **Pinned** by Test Group 20 in `hooks/test-stride-hook.sh`.
+
 ## [1.40.0] - 2026-11-04
 
 ### Changed — background prose leaves the completing-tasks skill and the reviewer prompt (W2597)
