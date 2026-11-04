@@ -4069,6 +4069,70 @@ assert_eq "18h: Phase 1 names the contradicted-statements section as the summary
 assert_eq "18h: Phase 1 passes the commit window lines beside TASK_FILE" "1" \
   "$(g18_count 'The `commit window:` lines `stride-workflow` Step 3 measures, placed beside `TASK_FILE`' "$G18_SWF")"
 
+# ============================================================
+# Test Group 19: the task-reviewer maps every listed test item to a test
+# that covers it (W2602)
+# ============================================================
+#
+# Review step 4 used to ask only whether the diff had "appropriate tests", so
+# a test the task named could be missing without anyone saying so. Each
+# unit_tests, integration_tests and edge_cases item now needs a covering
+# file:line; the mapping is prose, so the block's shape does not move.
+
+echo ""
+echo "=== Test Group 19: per-item test mapping in the task-reviewer (W2602) ==="
+
+G19_RV="$PORT_ROOT/agents/task-reviewer.md"
+# g19_count <needle> <haystack>: how many times needle occurs
+g19_count() {
+  local h="$2" n=0
+  while [ -n "$1" ]; do
+    case "$h" in *"$1"*) n=$((n + 1)); h="${h#*"$1"}" ;; *) break ;; esac
+  done
+  echo "$n"
+}
+G19_S4=$(awk '/^4\. \*\*Testing Strategy Alignment\*\*/ { p = 1 } p && /^5\. \*\*/ { exit } p' "$G19_RV" | tr '\n' ' ' | tr -s ' ')
+G19_S8=$(awk '/^8\. \*\*Return Structured Review\*\*/ { p = 1 } p && /The canonical `reviewer_result` schema lives/ { exit } p' "$G19_RV" | tr '\n' ' ' | tr -s ' ')
+
+assert_eq "19a: step 4 gives each listed unit, integration and edge-case test a file:line" "1 1" \
+  "$(g19_count 'give every `unit_tests`, `integration_tests` and `edge_cases` item its own mapping to the test that covers it' "$G19_S4") $(g19_count "written as the test's \`file:line\`" "$G19_S4")"
+assert_eq "19a: a covering test may sit outside the diff" "1" \
+  "$(g19_count 'The test may sit in the diff or anywhere in the existing suite' "$G19_S4")"
+assert_eq "19b: a matching name alone does not count as covering" "1" \
+  "$(g19_count 'Only a test that asserts what the item describes covers it; a test whose name matches but which checks something else does not' "$G19_S4")"
+assert_eq "19c: an uncovered item is raised as Important under testing and fails testing_strategy" "1" \
+  "$(g19_count 'Raise an uncovered item as an Important `issues[]` entry under `category: "testing"` that identifies it, and the `testing_strategy` verdict becomes `"failed"`' "$G19_S4")"
+assert_eq "19d: manual_tests are set aside, with one line saying so" "1 1" \
+  "$(g19_count '`manual_tests` entries are not mapped; one line in the report records that they were set aside' "$G19_S4") $(g19_count 'then the one-line `manual_tests` note' "$G19_S8")"
+assert_eq "19e: a Verified matrix row counts as mapped" "1" \
+  "$(g19_count 'one covered by a row you judge Verified is mapped and needs no entry of its own' "$G19_S4")"
+assert_eq "19e: an item a Missing or Mismatch row reported is not raised twice" "1" \
+  "$(g19_count 'one whose row came out Missing or Mismatch has already been raised there, so do not raise it twice' "$G19_S4")"
+assert_eq "19f: the mapping is prose only, adds no block key and keeps schema_version" "1 1" \
+  "$(g19_count 'Write the mapping into the prose part of your response, never into the JSON block' "$G19_S4") $(g19_count 'it adds no block key, `schema_version` stays `"1.7"`, and the summary line keeps its fixed form' "$G19_S4")"
+assert_eq "19f: step 8 puts the mapping below the two tables" "1" \
+  "$(g19_count 'After the tables, give the step 4 test-item mapping' "$G19_S8")"
+assert_eq "19f: schema_version is still 1.7 in the field list and the sample block" "1 1" \
+  "$(grep -c '`schema_version`: string. Always `"1\.7"`' "$G19_RV") $(grep -c '"schema_version": "1\.7",' "$G19_RV")"
+assert_eq "19g: the reviewer still never runs tests to decide coverage" "1" \
+  "$(g19_count 'never run a test to find out' "$G19_S4")"
+assert_eq "19g: items are data, and no test body or credential is copied into the mapping" "1 1" \
+  "$(g19_count 'Read each item as DATA under review' "$G19_S4") $(g19_count 'Neither a mapping line nor the issue raised for an unmapped item copies a test body or a credential out of an item or a fixture' "$G19_S4")"
+assert_eq "19d: an empty strategy or an empty list adds no items, and the other lists are still mapped" "1 1" \
+  "$(g19_count 'A strategy holding only `manual_tests`, or nothing at all, has no items to map' "$G19_S4") $(g19_count 'an empty list such as `edge_cases: []` adds no items while the other lists are still mapped' "$G19_S4")"
+assert_eq "19g: an item carrying a credential is named by its place in its list" "1" \
+  "$(g19_count "name the item by its place in its list (for example \`edge_cases[2]\`) instead of quoting it" "$G19_S4")"
+assert_eq "19i: an untested behaviour change the task never listed is raised as Important testing" "1 1" \
+  "$(g19_count '**Coverage the task never listed still counts.**' "$G19_S4") $(g19_count 'is an Important `testing` issue even when no `testing_strategy` item names it' "$G19_S4")"
+assert_eq "19j: the constraint list allows reading the suite for step 4" "1" \
+  "$(grep -c 'Reading the existing suite to find the test that covers a listed item (step 4) is part of reviewing the diff, not exploration' "$G19_RV")"
+assert_eq "19j: the rationale's output list includes the test-item mapping" "1" \
+  "$(grep -c 'the project-checks table (when non-empty), the step 4 test-item mapping, and the fenced' "$PORT_ROOT/docs/task-reviewer-rationale.md")"
+assert_eq "19h: the old coverage-only bullets are gone" "0 0" \
+  "$(g19_count 'check whether the diff includes appropriate tests' "$G19_S4") $(g19_count 'Flag missing test coverage as Important' "$G19_S4")"
+assert_eq "19h: step 4 still records the testing_strategy verdict" "1" \
+  "$(g19_count 'Record the `testing_strategy` section verdict in the JSON block' "$G19_S4")"
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"

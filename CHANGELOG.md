@@ -29,6 +29,16 @@ A task is written when its goal is broken up, and a sibling finished before the 
 - **The explorer's inputs grew.** Its inline fallback, in Step 3 and in `stride-subagent-workflow` Phase 1, now also carries `description` and any `technical_details`, and Phase 1 now names the new section as the summary's first.
 - **Pinned** by Test Group 18 in `hooks/test-stride-hook.sh`, which also runs the window block against a throwaway git repository: a plain timestamp lists commits per file, a later one gives `none`, a zone suffix or an option-shaped value is refused, unsafe or escaping paths never reach git, and missing key files or a missing task file are each stated. Group 11's pin on the inline fallback now matches the longer field list.
 
+### Changed — the task-reviewer finds a covering test for every test the task lists (W2602)
+
+Review step 4 asked only whether the diff carried "appropriate tests", so a test the task named word for word could be missing and no review would say so. In stride's count, 11 of 25 findings that a review saw and let pass were tests of exactly that kind.
+
+- **One mapping per item.** Each `unit_tests`, `integration_tests` and `edge_cases` entry is matched to the test that covers it, cited by `file:line` wherever it lives, inside the diff or already in the suite. Covering means asserting what the item describes; sharing its name is not enough. Coverage is decided by reading, and the reviewer still runs no tests.
+- **Unmapped means Important.** Nothing covering an item makes it an Important `testing` issue, and the `testing_strategy` verdict fails with it. `manual_tests` entries are set aside, and one line says so. The matrix check is not doubled: an item a Verified row covers counts as mapped, and one a Missing or Mismatch row already raised gets no second issue.
+- **Unlisted coverage still counts.** New or changed behaviour with no test at all is raised as an Important `testing` issue too, listed or not, and an empty list such as `edge_cases: []` adds nothing to map while the other lists are still mapped. The constraint against exploring past the diff now says that reading the existing suite to find a covering test is part of the review.
+- **The block is untouched.** The mapping sits in the prose part of the response, below the two tables; no block key is added, `schema_version` stays `"1.7"`, and the summary line is unchanged. Items are read as data. Neither a mapping line nor the issue for an unmapped item copies a test body or anything credential-shaped; an item whose text carries a credential is named by its place in its list, such as `edge_cases[2]`. `docs/task-reviewer-rationale.md` lists the mapping among the parts of the response.
+- **Pinned** by Test Group 19 in `hooks/test-stride-hook.sh`.
+
 ## [1.40.0] - 2026-11-04
 
 ### Changed — background prose leaves the completing-tasks skill and the reviewer prompt (W2597)
