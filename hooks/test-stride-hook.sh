@@ -1653,7 +1653,7 @@ if [ -f "$G4_WF" ] && [ -f "$G4_CT" ] && [ -f "$G4_REV" ]; then
   assert_eq "4a: the review step states the two-round ceiling" "yes" \
     "$(g4_has 'Two review rounds is the ceiling' "$G4_WF")"
   assert_eq "4b: the canon anchor sits beside it, exactly once" "1" \
-    "$(grep -cF '<!-- canon:review-round-cap v1 -->' "$G4_WF" || true)"
+    "$(grep -cF '<!-- canon:review-round-cap v2 -->' "$G4_WF" || true)"
   assert_eq "4c: a round is defined in terms this port has (a parsed block)" "yes" \
     "$(g4_has 'parsed into a JSON **object**' "$G4_WF")"
   assert_eq "4d: and NOT in terms of a file this port does not carry" "0" \
@@ -1702,8 +1702,46 @@ if [ -f "$G4_WF" ] && [ -f "$G4_CT" ] && [ -f "$G4_REV" ]; then
     "$(g4_has 'rm -f "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-rounds-$RC_IDENT.json"' "$G4_WF")"
   assert_eq "4q6: and the mirrored claiming-tasks block clears it too" "yes" \
     "$(g4_has 'rm -f "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-rounds-$RC_IDENT.json"' "$PORT_ROOT/skills/stride-claiming-tasks/SKILL.md")"
+
+  # W2592: round two must be earned. Every phrase check below reads a slice:
+  # the Step 6 round-cap block (anchor to its canon-governed note), the
+  # completing-tasks cap bullet, Phase 3 up to its extraction subsection, the
+  # whole of Phase 3.5 and the whole of Step 6.5, so a phrase found elsewhere in
+  # the file does not count.
+  # Two checks are whole-file on purpose: 4ar counts the anchor across the
+  # whole skill, and 4ay asserts README and CHANGELOG carry no anchor at all.
+  G4_CAP=$(awk 'index($0, "<!-- canon:review-round-cap") == 1 {f = 1} f && index($0, "**Canon-governed — entry `review-round-cap`") == 1 {exit} f' "$G4_WF")
+  G4_CTB=$(grep -F -- '- [ ] **Review rounds are within the cap.**' "$G4_CT" || true)
+  G4_P3=$(awk 'index($0, "## Phase 3:") == 1 {f = 1} f && index($0, "### Extracting the structured review block") == 1 {exit} f' "$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md")
+  G4_S65=$(awk 'index($0, "## Step 6.5:") == 1 {f = 1} f && index($0, "## Step 6.6:") == 1 {exit} f' "$G4_WF")
+  G4_P35=$(awk 'index($0, "## Phase 3.5:") == 1 {f = 1} f && index($0, "## Phase 3.6:") == 1 {exit} f' "$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md")
+  g4_in() { printf '%s\n' "$2" | grep -qF -- "$1" && echo yes || echo no; }
+  assert_eq "4ar: the anchor reads canon:review-round-cap v2 exactly once" "1 0" \
+    "$(grep -cF '<!-- canon:review-round-cap v2 -->' "$G4_WF" || true) $(grep -cF '<!-- canon:review-round-cap v1 -->' "$G4_WF" || true)"
+  assert_eq "4as: Step 6 names all three round-two triggers" "yes yes yes yes" \
+    "$(g4_in 'a second one has to be earned by the first' "$G4_CAP") $(g4_in '1. **The fixes changed a code path.**' "$G4_CAP") $(g4_in '2. **Round one reported a `critical`.**' "$G4_CAP") $(g4_in '3. **Round one reported a `category: "security"` issue**, whatever its severity.' "$G4_CAP")"
+  assert_eq "4at: a code path is decided by path and changed-line shape" "yes yes" \
+    "$(g4_in 'unless it is documentation (any `*.md`, `docs/`, a README, CHANGELOG or LICENSE), a test, or changed only in blank lines and whole-line comments' "$G4_CAP") $(g4_in 'never from how much the fix seems to matter' "$G4_CAP")"
+  assert_eq "4au: Step 6 states the recorded-not-re-reviewed disposition" "yes yes yes yes" \
+    "$(g4_in 'With none of the three, record the fixes instead of re-reviewing them, and submit round one'"'"'s block.' "$G4_CAP") $(g4_in 'write its severity, category, `file:line` and one line on what changed into `completion_notes`' "$G4_CAP") $(g4_in 'say in one line of `completion_summary` that the fixes were recorded rather than re-reviewed' "$G4_CAP") $(g4_in 'none of them ever opens a third' "$G4_CAP")"
+  assert_eq "4av: the security carve-out and the critical exemption are still stated" "yes yes yes" \
+    "$(g4_in 'is never merely recorded, at any severity' "$G4_CAP") $(g4_in '**`critical` is exempt from the cap and always blocks.**' "$G4_CAP") $(g4_in 'remaining `important` and `minor` findings are RECORDED, not fixed' "$G4_CAP")"
+  assert_eq "4aw: the completing-tasks self-check names the triggers" "yes yes yes" \
+    "$(g4_in 'a count of 2 needs round one to have earned it under the Step 6 triggers' "$G4_CTB") $(g4_in 'a fix that touched a code path, a round-one `critical`, or a round-one `category: "security"` issue of any severity' "$G4_CTB") $(g4_in 'An unearned round two is not submitted either' "$G4_CTB")"
+  assert_eq "4ax: Phase 3 and Step 6.5 defer to the triggers" "yes no yes" \
+    "$(g4_in 'run the reviewer a second time only if one of `stride-workflow` Step 6'"'"'s three triggers holds' "$G4_P3") $(g4_in 'you do NOT need to re-run the reviewer' "$G4_P3") $(g4_in 'apply Step 6'"'"'s round-two triggers exactly as for a round-one fix' "$G4_S65")"
+  assert_eq "4ay: README carries no literal canon anchor" "0 0 yes" \
+    "$(grep -cF '<!-- canon:review-round-cap' "$PORT_ROOT/README.md" || true) $(grep -cF '<!-- canon:review-round-cap' "$PORT_ROOT/CHANGELOG.md" || true) $(g4_has 'the second runs only when round one earns it' "$PORT_ROOT/README.md")"
+  assert_eq "4az: every what-changed line is own words, redacted" "yes yes yes" \
+    "$(g4_in 'in your own words — never the reviewer'"'"'s prose, a diff line or code, and redacted on the same terms as any other session text' "$G4_CAP") $(g4_in 'in your own words — never the reviewer'"'"'s prose, a diff line or code, and redacted on the same terms as any other session text' "$G4_CTB") $(g4_in 'in your own words — never the reviewer'"'"'s prose, a diff line or code, and redacted on the same terms as any other session text' "$G4_P3")"
+  assert_eq "4ba: an unearned round two's critical or security finding is never dropped" "yes yes yes" \
+    "$(g4_in 'note its findings by severity, category and `file:line` only and submit round one'"'"'s' "$G4_CTB") $(g4_in 'unless it raised a `critical` or a `category: "security"` issue, which is never dropped' "$G4_CTB") $(g4_in 'and otherwise stop with `review_blocked` / `failure.kind: "review_escalation"`' "$G4_CTB")"
+  assert_eq "4bb: round two runs only if at least one trigger holds" "yes" \
+    "$(g4_in 'invoke the reviewer again only if at least one of these holds:' "$G4_CAP")"
+  assert_eq "4bc: Phase 3.5 and Step 6.5 apply the triggers and keep the cap" "yes yes yes yes yes" \
+    "$(g4_in 'apply `stride-workflow` Step 6'"'"'s round-two triggers exactly as for a round-one fix' "$G4_P35") $(g4_in 'earns a further round (never a third, a `critical` excepted)' "$G4_P35") $(g4_in 'earns a further round (never a third, a `critical` excepted)' "$G4_S65") $(g4_in 'Once two rounds are spent, a `category: "security"` finding from this session is still never recorded and submitted' "$G4_S65") $(g4_in 'Once two rounds are spent, a `category: "security"` finding from this session is still never recorded and submitted' "$G4_P35")"
 else
-  echo "  SKIP: 4a-4q: contract files not found"
+  echo "  SKIP: 4a-4bc: contract files not found"
 fi
 
 if [ -f "$G4_WF" ] && command -v python3 > /dev/null 2>&1; then
@@ -1875,8 +1913,8 @@ if [ -f "$G5_REV" ] && [ -f "$G5_WF" ] && [ -f "$G5_CT" ]; then
   # Anti-regression: the vacuous-truth trap over an empty issues[].
   assert_eq "5r: an absent or empty issues[] is never an all-cosmetic round" "yes" \
     "$(g5_has 'An absent or empty `issues[]` is never an all-cosmetic round' "$G5_WF")"
-  assert_eq "5s: changes_requested still forces a re-dispatch" "yes" \
-    "$(g5_has 'honour that and re-dispatch regardless' "$G5_WF")"
+  assert_eq "5s: changes_requested rules out the shortcut; the triggers decide" "yes yes" \
+    "$(g5_has 'a `changes_requested` status rules this shortcut out' "$G5_WF") $(g5_has 'the round-two triggers above then decide whether the reviewer runs again' "$G5_WF")"
   assert_eq "5t: the mirror defers ownership to the reviewer contract" "yes" \
     "$(g5_has 'Its definition is owned by `agents/task-reviewer.md`' "$G5_WF")"
   assert_eq "5u: the completion hard gate carries the cosmetic checkbox" "yes" \

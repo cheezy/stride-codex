@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — a second review round has to be earned (W2592)
+
+Step 6 no longer runs round two just because round one asked for changes. Round two now needs one of three things: a fix that touched a code path (any file other than documentation, a test, or one changed only in blank lines and whole-line comments), a round-one `critical`, or a round-one `category: "security"` issue of any severity. Failing all three, each fixed finding is written into `completion_notes` (severity, category, `file:line`, what changed), `completion_summary` gets a line saying so, and the submitted block is round one's. Three things stay as they were: a `critical` still blocks outside the cap, a security issue is still fixed or escalated and never just written down, and whatever is left after round two is still recorded rather than fixed. The completing-tasks self-check, `stride-subagent-workflow` Phase 3, Step 6.5 and the README now say the same, and the `review-round-cap` anchor moves to v2. In this change the triggers are followed as prose; the round-cap pin does not evaluate them yet.
+
 ### Added — Step 0 says when this copy is out of date (W2591)
 
 `stride-workflow` Step 0 item 5 runs the new `hooks/check-plugin-current.sh` once per session and relays its one line, if there is one, to the user a single time without asking anything. The script compares the installed version with the one stride-codex-marketplace publishes and prints a single line when the install is behind, with both version numbers and how to update: `codex plugin update stride-codex` for a plugin install, or re-running the installer for an `.agents/` copy. In every other case it prints nothing, and it always exits 0. Versions compare as numbers part by part, so 1.40.0 is newer than 1.9.0, and one made of anything but digits and dots counts as unknown and is never guessed.
