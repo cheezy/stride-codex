@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.40.0] - 2026-11-04
 
 ### Changed — the creation skills and the decomposer write a `behaviour_test_matrix` by default (W2599)
 
@@ -68,8 +68,6 @@ Half-finished sweeps cost stride whole review rounds: the PowerShell half of a b
 - **What it raises.** Changing behaviour, or a shared rule, without touching the partner is an Important `code_quality` issue naming both files and is never `cosmetic`; if the task or the invocation explains why the partner can stay as it is, nothing is raised. The block gains no key and `schema_version` stays `"1.7"`. Step 8 and `docs/task-reviewer-rationale.md` add the twin checks to the parts of the report.
 - **Pinned** by Test Group 22 in `hooks/test-stride-hook.sh`.
 
-## [1.40.0] - 2026-11-04
-
 ### Changed — background prose leaves the completing-tasks skill and the reviewer prompt (W2597)
 
 The method W2596 used on the orchestrator, applied to the two other files Codex reads in full: `skills/stride-completing-tasks/SKILL.md` on every completion and `agents/task-reviewer.md` on every review dispatch. Eight passages from the skill now live in a new `docs/completion-rationale.md` and four from the reviewer prompt in a new `docs/task-reviewer-rationale.md`, each under its own `##` heading, and each original site keeps a pointer naming its section. From the skill: why the required-field list leads it, why the verification checklist exists, why diff capture is manual in Codex (the inline sentence now gives the true reason: this port's hooks record loop state and guard the response but write no snapshot), why stride-codex does not vendor the trust guard, why the `completion_summary` line matters most when no reviewer ran, the severity table's third column with the reasoning for where the four-into-three collapse falls, and the Rationalization Table and Real-World Impact sections, whose figures never had a recorded source and are now marked that way. From the reviewer: the copy-list that dropped `project_checks`, the `schema_version` bump history, the review that showed six of five criteria, and where the review goes once it is returned.
@@ -126,6 +124,13 @@ stride's batch has twelve fixes. The entries above port eight of them; these fou
 - **W2254, reading the key files while the explorer works: not applicable.** The Codex documentation does not say whether a `task-explorer` call gives the turn back before its result arrives, and no Codex CLI was installed to find out, so `stride-subagent-workflow` Phase 1 waits for the explorer (W2594, `docs/HOOK_RESEARCH.md`).
 - **W2255, letting the Stop gate allow a stop while an agent runs: not applicable.** The documented `Stop` input carries no list of running agents, so the permit would have nothing to read, and its time bound nothing to bound. W2255 adds nothing to the gate or its registration (W2594, `docs/HOOK_RESEARCH.md`); the gate's one change in this release is W2595's slim-view call above, which needs the hook approved again.
 - **W2259, measuring the batch's effect: not applicable.** stride measured itself on Claude Code. Nothing was measured on Codex CLI, so this release claims no saving in tokens or time.
+
+### Not ported from G455 — what this release carries another way
+
+The entries above, W2599 to W2605, take all seven of stride's G455 changes (W2292 to W2298). Two parts of them could not come across as stride wrote them, and they are recorded here so the gap reads as a decision.
+
+- **W2295's claims-census hand-off: not applicable.** In stride the reviewer re-runs any `claims_verified_by` command the implementer recorded. No claims census exists in this port, so nothing recorded is waiting to be re-run, and the reviewer settles each statement with commands of its own (W2604).
+- **W2298's `verified_by`: `checked by:` instead.** stride's explorer writes the shell command that settled each statement as `verified_by` and lists recent commits itself. This port's task-explorer holds only read, search and glob, so it names the call it made as `checked by:`, and the commit window is measured by the orchestrator in `stride-workflow` Step 3 and passed in with the prompt. A window that cannot be measured arrives as a `not checked` line, and the explorer then settles its statements by reading (W2601).
 
 ## [1.39.0] - 2026-10-01
 
