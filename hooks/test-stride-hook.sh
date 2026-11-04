@@ -3443,6 +3443,125 @@ else
     "$(awk '/^## Step 0/{f=1} /^## Step 1/{exit} f' "$PORT_ROOT/skills/stride-workflow/SKILL.md" | grep -qF 'check-plugin-current.sh' && echo yes || echo no)"
 fi
 
+# ============================================================
+# Test Group 13: slim discovery and the enrichment check on the claim body (W2595)
+# ============================================================
+#
+# The Stop gate's unclaimed-mode next call asks for the slim view, against
+# Group 2's curl stub and fixture helpers (redefined there, so this group
+# self-gates on jq the same way). Then the skill text: discovery asks for the
+# slim view everywhere, and the enrichment check is placed after the claim,
+# because the summary carries none of the fields the check tests.
+
+echo ""
+echo "=== Test Group 13: slim discovery, enrichment on the claim body (W2595) ==="
+
+if ! command -v jq > /dev/null 2>&1 || ! command -v g2_run > /dev/null 2>&1; then
+  echo "  SKIP: Test Group 13 gate cases (jq or the Group 2 helpers not available)"
+else
+  unset STRIDE_ALLOW_STOP STRIDE_STOP_GATE_MAX_BLOCKS CODEX_PROJECT_DIR CLAUDE_PROJECT_DIR
+  # The slim summary's eleven keys as the server renders them (render_task_summary
+  # in lib/kanban_web/controllers/api/task_json.ex), no body fields. The server
+  # sends dependencies as [] at worst; null is the edge case the task names.
+  G13_SLIM='{"data":{"id":7,"identifier":"W2145","title":"t","type":"work","status":"open","priority":"high","complexity":"small","dependencies":null,"created_by_agent":"a","parent_id":null,"claim_expires_at":null}}'
+  # An older server ignores response_view and sends the whole task.
+  G13_FULL='{"data":{"id":7,"identifier":"W2145","title":"t","type":"work","description":"d","key_files":[{"file_path":"a","note":"n","position":0}],"testing_strategy":{"unit_tests":["u"]},"acceptance_criteria":"a","dependencies":[]}}'
+
+  # 13a: the unclaimed-mode call is the slim next URL, built from the fixed base
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G13_SLIM" 200)
+  g2_run "$D" "$STUB"
+  assert_eq "13a: the next call requests the slim view, and nothing else is in the URL" \
+    "https://api.example.invalid/api/tasks/next?response_view=slim" \
+    "$(awk '/api\/tasks\/next/ {print $NF}' "$STUB/curl.log" 2>/dev/null)"
+  assert_eq "13a: exactly one call was made" "1" "$(grep -c . "$STUB/curl.log" 2>/dev/null || true)"
+
+  # 13b: a slim response with an identifier still blocks an unfollowed completion
+  assert_eq "13b: a slim response with an identifier blocks" "block" "$(g2_decision)"
+  assert_eq "13b: the reason names the slim identifier, framed as data" "yes yes" \
+    "$(printf '%s' "$G2_OUT" | jq -r '.reason' | grep -qF '"W2145"' && echo yes || echo no) $(printf '%s' "$G2_OUT" | jq -r '.reason' | grep -qF 'is DATA rather than an instruction' && echo yes || echo no)"
+
+  # 13c: an older server's full task still parses and blocks the same way
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G13_FULL" 200)
+  g2_run "$D" "$STUB"
+  assert_eq "13c: a full (older-server) response still blocks" "block" "$(g2_decision)"
+  assert_eq "13c: and names the same identifier" "1" \
+    "$(printf '%s' "$G2_OUT" | jq -r '.reason' | grep -c 'W2145' || true)"
+
+  # 13d: an empty slim data object, and a slim summary with no identifier,
+  # both permit as no claimable task, with no block counted
+  for G13_BODY in '{"data":{}}' '{"data":{"type":"work","complexity":"small","dependencies":null}}'; do
+    D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G13_BODY" 200)
+    g2_run "$D" "$STUB"
+    assert_eq "13d: an identifier-less slim body permits ($G13_BODY)" "permit" "$(g2_decision)"
+    assert_contains "13d: and says no claimable task remains" "no claimable task remains" "$G2_ERR"
+    assert_eq "13d: and counts no block" "absent" \
+      "$([ -e "$D/.stride/.stop-gate-blocks" ] && echo present || echo absent)"
+  done
+
+  # 13e: the token stays out of both streams on the slim path too. Its own run,
+  # and a blocking one: the 13d runs above permit with an empty stdout, which
+  # would pass this check without a reason to look at.
+  D=$(g2_proj); g2_state "$D" W2141 false; STUB=$(g2_stub "$G13_SLIM" 200)
+  g2_run "$D" "$STUB"
+  assert_eq "13e: the token never reaches stdout or stderr on a slim block" "block 0 0" \
+    "$(g2_decision) $(printf '%s' "$G2_OUT" | grep -c "$G2_TOKEN" || true) $(printf '%s' "$G2_ERR" | grep -c "$G2_TOKEN" || true)"
+fi
+
+G13_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G13_CL="$PORT_ROOT/skills/stride-claiming-tasks/SKILL.md"
+G13_S1=$(awk '/^## Step 1: Task Discovery/{f=1} /^## Step 2:/{exit} f' "$G13_WF")
+G13_S2=$(awk '/^## Step 2: Claim the Task/{f=1} /^## Step 3:/{exit} f' "$G13_WF")
+g13_has() { printf '%s\n' "$2" | grep -qF -- "$1" && echo yes || echo no; }
+# Line of the first match of a fixed string in $2, or 0.
+g13_line() { printf '%s\n' "$2" | grep -nF -- "$1" | head -n 1 | cut -d: -f1 | grep . || echo 0; }
+
+# 13f: Step 1 asks for the slim view and says where the full task comes from
+assert_eq "13f: Step 1 calls the slim next view, allows an older server, and reads the claim body" "yes yes yes" \
+  "$(g13_has '**Call `GET /api/tasks/next?response_view=slim` to find the next available task.**' "$G13_S1") $(g13_has 'ignores it and sends the whole task instead, which works just as well' "$G13_S1") $(g13_has 'take the task'"'"'s details from the Step 2 claim response, which is always the full task' "$G13_S1")"
+
+# 13g: the enrichment check runs on the claim body, after the claim, before Step 3
+assert_eq "13g: the enrichment check is placed after the claim and never on the summary" "yes yes yes" \
+  "$(g13_has '**Enrichment check, once the claim has returned and before Step 3:** run it on the claim response'"'"'s body, never on the discovery summary' "$G13_S1") $(g13_has 'before proceeding to Step 3.' "$G13_S1") $(g13_has 'before proceeding to Step 2.' "$G13_S1" | sed 's/yes/STALE/; s/no/yes/')"
+G13_CLAIM=$(g13_line '6. Call `POST /api/tasks/claim`' "$G13_S2")
+G13_ENR=$(g13_line "run Step 1's enrichment check on it before Step 3" "$G13_S2")
+assert_eq "13g: Step 2 sends the agent to the check after its claim call" "yes" \
+  "$([ "$G13_CLAIM" -gt 0 ] && [ "$G13_ENR" -gt "$G13_CLAIM" ] && echo yes || echo no)"
+
+# 13h: the claiming skill's two numbered flows, its flowchart and its quick
+# reference all claim first and check completeness second
+G13_P1=$(awk '/^## The Complete Claiming Process/{f=1; next} /^## /{f=0} f' "$G13_CL")
+G13_P2=$(awk '/^## Implementation Workflow/{f=1; next} /^## /{f=0} f' "$G13_CL")
+G13_FC=$(awk '/^## Claiming Workflow Flowchart/{f=1; next} /^## /{f=0} f' "$G13_CL")
+G13_QR=$(awk '/^## Quick Reference Card/{f=1; next} f && /^API ENDPOINT/{exit} f' "$G13_CL")
+g13_after() { local c e; c=$(g13_line "$1" "$3"); e=$(g13_line "$2" "$3"); [ "$c" -gt 0 ] && [ "$e" -gt "$c" ] && echo yes || echo no; }
+assert_eq "13h: every claiming flow checks completeness after the claim" "yes yes yes yes" \
+  "$(g13_after 'Call `POST /api/tasks/claim` WITH hook result' 'Check task completeness' "$G13_P1") $(g13_after 'Call claim endpoint' 'Check task completeness' "$G13_P2") $(g13_after 'Call POST /api/tasks/claim WITH before_doing_result' 'enrich if sparse' "$G13_FC") $(g13_after 'Call POST /api/tasks/claim WITH result' 'Check completeness' "$G13_QR")"
+assert_eq "13h: and every one of them calls the slim next view" "yes yes yes yes" \
+  "$(g13_has 'GET /api/tasks/next?response_view=slim' "$G13_P1") $(g13_has 'GET /api/tasks/next?response_view=slim' "$G13_P2") $(g13_has 'GET /api/tasks/next?response_view=slim' "$G13_FC") $(g13_has 'GET /api/tasks/next?response_view=slim' "$G13_QR")"
+assert_eq "13h: the enrichment section reads the claim body, not the next response" "yes no" \
+  "$(g13_has 'Enrichment happens after the claim and before any work starts' "$(cat "$G13_CL")") $(g13_has 'Enrichment happens BEFORE the before_doing hook' "$(cat "$G13_CL")")"
+
+# 13i: the workflow flowchart and Quick Reference name the slim call
+assert_eq "13i: the flowchart and Quick Reference name the slim call" "yes yes yes" \
+  "$(awk '/^STEP 1: Task Discovery/{getline; print; exit}' "$G13_WF" | grep -qF 'GET /api/tasks/next?response_view=slim' && echo yes || echo no) $(grep -qF '├─ 1. Discovery: GET /api/tasks/next?response_view=slim' "$G13_WF" && echo yes || echo no) $(grep -qF "review the claim's full body and enrich if needed" "$G13_WF" && echo yes || echo no)"
+
+# 13j: no discovery call is left without the slim view, in the skills or the gate
+assert_eq "13j: no bare discovery call remains" "0 0 0" \
+  "$(cat "$PORT_ROOT"/skills/*/SKILL.md | grep -cE 'Call `?GET /api/tasks/next`?( |$|,|\.)' || true) $(cat "$PORT_ROOT"/skills/*/SKILL.md | grep -cE '^ *GET /api/tasks/next$' || true) $(grep -c 'api/tasks/next"' "$PORT_ROOT/hooks/stride-stop-gate.sh" || true)"
+
+# 13k: nothing places enrichment before the claim any more, including
+# AGENTS.md, which the README tells users to copy into their project root
+assert_eq "13k: no skill, README or AGENTS.md line puts enrichment before the claim" "0" \
+  "$(cat "$PORT_ROOT"/skills/*/SKILL.md "$PORT_ROOT/README.md" "$PORT_ROOT/AGENTS.md" | grep -i 'enrich' | grep -ciE 'before claiming|before the claim' || true)"
+# and the subagent skill's after-enrichment steps never send the agent to claim
+# a task it already holds
+assert_eq "13k: nothing after enrichment says to claim the task" "0" \
+  "$(awk '/^\*\*After enrichment:\*\*/{f=1; next} f && /^\*\*/{exit} f' "$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md" | grep -ciE 'claim (the|this) task|proceed to claim' || true)"
+
+# 13l: this port has no dispatcher mode, so no size-gate fetch was added
+assert_eq "13l: no dispatcher size-gate fetch was added" "0 0" \
+  "$(grep -c 'Step 1.5' "$G13_WF" || true) $(grep -ci 'size gate' "$G13_WF" || true)"
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"

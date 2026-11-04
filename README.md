@@ -218,7 +218,7 @@ stride-enriching-tasks           ← WHEN a task has empty key_files/testing_str
 |-------|---------|
 | `task-explorer` | Explore key_files and patterns before implementation |
 | `task-reviewer` | Review changes against acceptance criteria before completion; emits a structured `reviewer_result` (schema 1.7 — `issues[]` entries carry an optional `cosmetic` boolean, presentational-only findings that are still reported but buy no re-review round) with `project_checks[]` (from a project-root `CODE-REVIEW.md`) and per-section testing_strategy/patterns/pitfalls/security_considerations verdicts — `security_considerations` is the fifth review_queue-scored field and (schema 1.5+) carries an optional nested `considerations[]` breakdown, plus (schema 1.6+) an OPTIONAL `behaviour_test_matrix` verdict emitted only when the task supplies a matrix |
-| `task-enricher` | Populate sparse tasks (empty key_files/testing_strategy/verification_steps) before claiming |
+| `task-enricher` | Populate sparse tasks (empty key_files/testing_strategy/verification_steps) after the claim, before any work |
 | `task-decomposer` | Break goals into dependency-ordered child tasks |
 | `hook-diagnostician` | Diagnose hook failures with prioritized fix plans |
 
@@ -277,8 +277,9 @@ previous claim's payload and record a completion that never happened).
 
 Fires on `Stop` and refuses to end a session while work demonstrably remains.
 It blocks in exactly **one** case: the loop-state record exists, its
-`needs_review` is the boolean `false`, and `GET /api/tasks/next` answers 200
-with a claimable identifier. A block is
+`needs_review` is the boolean `false`, and
+`GET /api/tasks/next?response_view=slim` answers 200 with a claimable
+identifier. A block is
 `{"decision":"block","reason":"..."}` on stdout with exit 0 — on a Stop event
 that does not reject anything, it forces the session to continue using the
 reason as the new instruction.
