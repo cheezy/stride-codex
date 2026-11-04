@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed — the creation skills and the decomposer write a `behaviour_test_matrix` by default (W2599)
+
+The enricher already wrote a matrix whenever it produced test cases, but `stride-creating-tasks` and `stride-creating-goals` both described it as optional and `task-decomposer` did not mention it, so tasks made any other way arrived without the only test plan the reviewer checks line by line. All three now say the same thing. When `testing_strategy` lists a unit or integration test, the task gets a row for each of the seven categories, and a category the change does not touch is waived with `na_reason` rather than dropped. A strategy made only of `manual_tests` gets `"manual"` rows if its checks test behaviour. A task with nothing testable skips it, and its `description` says why in one sentence. Every row's `test_name` must be a test `testing_strategy` lists. The decomposer, which reads project files, never copies a credential-shaped string from one into a row. Nothing changed on the server: an absent or empty matrix is still accepted and a partial one is still rejected, and the README, the recommended-fields bullet in `stride-creating-tasks` and the paragraph under its Complete Task Object now say "optional at the API" rather than "optional", while its field-reference table says the matrix is written by default. That example's `testing_strategy` now lists the test each matrix row names, so it follows the rule beside it. Tests: Group 16.
+
 ## [1.40.0] - 2026-11-04
 
 ### Changed — background prose leaves the completing-tasks skill and the reviewer prompt (W2597)

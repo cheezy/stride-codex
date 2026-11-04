@@ -3740,6 +3740,63 @@ assert_eq "15f: the reviewer prompt never asks the reviewer to read its doc" "0"
 assert_eq "15f: both docs disclaim any rule and hold no token-shaped text" "yes yes 0 0" \
   "$(grep -qF '**Nothing here is a rule.**' "$G15_CDOC" && echo yes || echo no) $(grep -qF '**Nothing here is a rule.**' "$G15_RDOC" && echo yes || echo no) $(grep -ciE 'stride_(dev|live|prod)_[A-Za-z0-9]|Bearer [A-Za-z0-9]' "$G15_CDOC" || true) $(grep -ciE 'stride_(dev|live|prod)_[A-Za-z0-9]|Bearer [A-Za-z0-9]' "$G15_RDOC" || true)"
 
+# ============================================================
+# Test Group 16: the creation skills and the decomposer write a
+# behaviour_test_matrix by default (W2599)
+# ============================================================
+#
+# The enricher already wrote a matrix by default; the two creation skills
+# called it optional and the decomposer never mentioned it. Each of the three
+# now carries the same rule set, pinned here file by file, and the server
+# contract each restates is unchanged.
+
+echo ""
+echo "=== Test Group 16: matrix by default in creation skills and decomposer (W2599) ==="
+
+G16_CT="$PORT_ROOT/skills/stride-creating-tasks/SKILL.md"
+G16_CG="$PORT_ROOT/skills/stride-creating-goals/SKILL.md"
+G16_DC="$PORT_ROOT/agents/task-decomposer.md"
+g16_flat() { tr '\n' ' ' < "$1" | tr -s ' '; }
+g16_in() { case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac; }
+
+# g16_rules <label> <file>: the six rules every one of the three files states
+g16_rules() {
+  local label="$1" f
+  f=$(g16_flat "$2")
+  assert_eq "16a: $label: writes the matrix by default when testing_strategy names a unit or integration test" "yes yes" \
+    "$(g16_in '**Write it by default.**' "$f") $(g16_in '`testing_strategy` names any unit or integration test, give' "$f")"
+  assert_eq "16a: $label: one row for each of the seven categories" "yes" \
+    "$(g16_in 'a `behaviour_test_matrix` with a row for each of the seven categories' "$f")"
+  assert_eq "16b: $label: inapplicable categories are waived with na_reason, not omitted" "yes" \
+    "$(g16_in 'waive that row with `status: "not_applicable"` and a one-line `na_reason`, and keep the other rows' "$f")"
+  assert_eq "16c: $label: a manual-only strategy gets manual rows when its checks exercise behaviour" "yes yes" \
+    "$(g16_in '**A strategy with only `manual_tests`** gets a matrix when those checks exercise behaviour' "$f") $(g16_in 'its `type` is `"manual"`' "$f")"
+  assert_eq "16d: $label: left out only when nothing is testable, with a reason in the description" "yes yes" \
+    "$(g16_in '**Leave it out only when the task has no testable behaviour**' "$f") $(g16_in 'give the reason in one sentence of the `description`' "$f")"
+  assert_eq "16e: $label: every row's test_name is a test testing_strategy lists" "yes" \
+    "$(g16_in "**Each row's \`test_name\` is a test \`testing_strategy\` lists.**" "$f")"
+  assert_eq "16f: $label: the server still accepts an absent or empty matrix and rejects a partial one" "yes yes" \
+    "$(g16_in 'An absent, `null` or empty matrix is still accepted' "$f") $(g16_in 'a non-empty matrix missing a category is still rejected' "$f")"
+  assert_eq "16f: $label: row text never holds a secret or credential" "yes" \
+    "$(a=$(g16_in 'never record secrets or credentials in `behaviour`, `test_name`, or `na_reason`' "$f"); b=$(g16_in '`behaviour`, `test_name` and `na_reason` never hold a secret or credential' "$f"); { [ "$a" = yes ] || [ "$b" = yes ]; } && echo yes || echo no)"
+}
+g16_rules "creating-tasks" "$G16_CT"
+g16_rules "creating-goals" "$G16_CG"
+g16_rules "task-decomposer" "$G16_DC"
+
+# 16g: the decomposer reads project files, so it bars copying a
+# credential-shaped string from one into a row, and lists the matrix among a
+# child's fields
+G16_DCF=$(g16_flat "$G16_DC")
+assert_eq "16g: the decomposer bars credential-shaped strings taken from project files" "yes" \
+  "$(g16_in 'never copy a credential-shaped string from one of them' "$G16_DCF")"
+assert_eq "16g: the decomposer's field table lists the matrix as written by default" "yes" \
+  "$(grep -qF '| `behaviour_test_matrix` | By default |' "$G16_DC" && echo yes || echo no)"
+
+# 16h: the old optional-only wording is gone from both creation skills
+assert_eq "16h: the creation skills no longer call the matrix optional-only" "no no no" \
+  "$(g16_in '**Optional field.** Omit it entirely when you have nothing concrete to record' "$(g16_flat "$G16_CT")") $(g16_in 'Omitting it on a nested task is always fine' "$(g16_flat "$G16_CG")") $(g16_in 'Populate it per nested task only where you have concrete behaviours' "$(g16_flat "$G16_CG")")"
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"
