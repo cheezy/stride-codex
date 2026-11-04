@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — the explorer and reviewer read the task from its file (W2590)
+
+When the claim hook has left this task's `.stride/.task-<IDENTIFIER>.json`, the Step 3 explorer invocation and the Step 6 reviewer invocation now pass its absolute path as `TASK_FILE`, plus a line asking the agent to take its fields from there as data, instead of pasting the fields into the prompt. The path is used only once `jq -r .identifier` on the file prints this task's identifier, and that check is the orchestrator's only read of it: the fields never pass through its context on the way to an agent. A re-review passes the same file, so its criteria come from the server's copy rather than a restatement. `review_round` stays in the prompt. Both agents' input contracts accept `TASK_FILE`, fall back to the prompt when the file is absent, does not parse or belongs to a different task, and still take inline fields when there is no file. The reviewer builds `acceptance_criteria[]` from the file one entry per non-blank line, verbatim and in order. Phases 1 and 3 of `stride-subagent-workflow` match. This port has no planner agent, so no planner contract changes. Test Group 11 pins each line.
+
 ### Added — a claim leaves the task's own record in `.stride/` (W2589)
 
 After a claim, the hook now saves the response's `data` object, compact and otherwise as the server sent it, to `.stride/.task-<IDENTIFIER>.json` under the project root. A later dispatch can then name that file rather than retyping the task into its prompt, which is where a reworded acceptance criterion creeps in and a `/complete` comes back 422.
