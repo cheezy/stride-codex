@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Not ported — reading while the explorer runs, and the Stop permit for a running agent (W2594)
+
+stride 1.81.0 lets the main agent read the task's key files while the explorer works (W2254), and lets its Stop gate allow a stop while a dispatched agent is still running (W2255). Neither is ported, and `docs/HOOK_RESEARCH.md` records why. No Codex CLI was available to watch, so both questions were taken to the Codex documentation. It does not say whether a custom-agent call hands the turn back before its result arrives, which leaves W2254 unmeasured, so `stride-subagent-workflow` Phase 1 now says to wait for the explorer's summary. The documented `Stop` input names no running agents, so there is nothing for W2255's permit to read; `hooks/stride-stop-gate.sh` and `hooks/hooks.json` are unchanged and nothing needs re-approving.
+
 ### Added — the round-cap pin checks that round two was earned (W2593)
 
 The Step 6 pin now takes two more inputs. `prior_security` is the number of `category: "security"` issues the previous round reported; the review-round counter stores it beside `prior_critical`, and anything there but plain digits reads as 0. `fix_code_paths` is the number of code paths the fixes changed, printed by a new fix-path classifier in Step 6; `-1` means it was not measured and leaves round two open. Round two now passes the pin only with a prior critical, a prior security issue, a non-zero `fix_code_paths`, or a cleared critical. Rounds three and up still answer only to the critical exemption.

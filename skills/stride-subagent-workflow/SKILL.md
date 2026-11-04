@@ -155,6 +155,8 @@ Provide the agent with:
 
 The explorer will return a structured summary of: each key file's current state, related test files, existing patterns found, and module APIs to reuse.
 
+**While the explorer runs, wait for its summary and start nothing else**, because Codex's documentation does not say whether a custom-agent call gives the turn back before it returns, so this port has no window in which to read or plan alongside it (the evidence is in this repository's `docs/HOOK_RESEARCH.md`).
+
 **Use the explorer's output** to inform your implementation — don't discard it. It tells you what exists, what patterns to follow, and what utilities to reuse.
 
 ## Phase 2: Planning (Conditional, Before Coding)
