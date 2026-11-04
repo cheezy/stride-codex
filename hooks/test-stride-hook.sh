@@ -509,8 +509,8 @@ b' "$G_CMD" "$G_OK")"
     "$(grep -cE '^cp .*/hooks/hooks\.json" "\$INSTALL_DIR/hooks/hooks\.json"$' "$PORT_ROOT/install.sh" || true)"
   assert_eq "1z2: install.sh creates the hooks directory" "1" \
     "$(grep -cE '^mkdir -p .*\$INSTALL_DIR/hooks"' "$PORT_ROOT/install.sh" || true)"
-  assert_eq "1z2: install.ps1 copies all three hook files" "1" \
-    "$(grep -cF "foreach (\$hookFile in @('stride-hook.sh', 'stride-stop-gate.sh', 'hooks.json'))" "$PORT_ROOT/install.ps1" || true)"
+  assert_eq "1z2: install.ps1 copies all four hook files" "1" \
+    "$(grep -cF "foreach (\$hookFile in @('stride-hook.sh', 'stride-stop-gate.sh', 'hooks.json', 'check-plugin-current.sh'))" "$PORT_ROOT/install.ps1" || true)"
   assert_eq "1z2: install.ps1 creates the hooks directory" "1" \
     "$(grep -cF "New-Item -ItemType Directory -Force -Path (Join-Path \$InstallDir 'hooks')" "$PORT_ROOT/install.ps1" || true)"
   assert_eq "1z2: the port gitignores .stride/" "1" \
@@ -3026,6 +3026,236 @@ if [ -f "$G11_WF" ] && [ -f "$G11_SW" ] && [ -f "$G11_EX" ] && [ -f "$G11_RV" ];
     "$(g11_has 'and it is never read from `TASK_FILE`' "$G11_RC")"
 else
   echo "  SKIP: Test Group 11 (a skill or agent file is missing)"
+fi
+
+# ============================================================
+# Test Group 12: the Step 0 stale-install check (W2591)
+# ============================================================
+#
+# hooks/check-plugin-current.sh against a stubbed curl on a prepended PATH, so
+# no case reaches the network. Each fixture is an install root with
+# skills/stride-workflow under it, in one of the two shapes: a plugin bundle
+# (.codex-plugin/plugin.json) or an .agents/ copy (hooks/stride-codex.version).
+# The installer cases run install.sh, and install.ps1 when pwsh is on PATH,
+# with a stubbed git whose "clone" copies this checkout.
+
+echo ""
+echo "=== Test Group 12: the Step 0 stale-install check (W2591) ==="
+
+G12_CHECK="$PORT_ROOT/hooks/check-plugin-current.sh"
+G12_BASH="$(command -v bash)"
+G12_JQ="$(command -v jq || true)"
+
+# $1 published version (written into the stub's manifest), $2 curl exit code
+# (non-zero also writes a curl-style error to stderr, as the real one does),
+# $3 optional raw body that replaces the manifest.
+g12_stub() {
+  local d body
+  d=$(mktemp -d "$TMPDIR_TEST/g12stub.XXXXXX")
+  if [ "$#" -ge 3 ]; then body="$3"; else body=$(jq -nc --arg v "$1" '{name: "stride-codex", version: $v}'); fi
+  { printf '#!/usr/bin/env bash\n'
+    printf 'printf "%%s\\n" "$@" > "%s/curl.args"\n' "$d"
+    printf 'if [ "%s" -ne 0 ]; then echo "curl: (%s) stub failure" >&2; exit %s; fi\n' "$2" "$2" "$2"
+    printf 'printf "%%s" %s\n' "$(printf '%q' "$body")"
+  } > "$d/curl"
+  chmod +x "$d/curl"
+  printf '%s' "$d"
+}
+
+# $1 shape (bundle|loose|none), $2 installed version. Prints the skill dir.
+g12_tree() {
+  local r
+  r=$(mktemp -d "$TMPDIR_TEST/g12root.XXXXXX")
+  mkdir -p "$r/skills/stride-workflow" "$r/hooks"
+  case "$1" in
+    bundle) mkdir -p "$r/.codex-plugin"
+            jq -nc --arg v "$2" '{name: "stride-codex", version: $v}' > "$r/.codex-plugin/plugin.json" ;;
+    loose)  printf '%s\n' "$2" > "$r/hooks/stride-codex.version" ;;
+  esac
+  printf '%s' "$r/skills/stride-workflow"
+}
+
+# $1 stub dir, then the script's arguments. Sets G12_OUT, G12_ERR, G12_RC.
+g12_run() {
+  local stub="$1"; shift
+  [ -n "$stub" ] || { echo "FATAL: empty stub dir — refusing to put cwd on PATH" >&2; exit 1; }
+  PATH="$stub:$PATH" "$G12_BASH" "$G12_CHECK" "$@" > "$TMPDIR_TEST/g12.out" 2> "$TMPDIR_TEST/g12.err"
+  G12_RC=$?
+  G12_OUT=$(cat "$TMPDIR_TEST/g12.out"); G12_ERR=$(cat "$TMPDIR_TEST/g12.err")
+}
+g12_lines() { [ -s "$TMPDIR_TEST/g12.out" ] && grep -c '' "$TMPDIR_TEST/g12.out" || echo 0; }
+g12_has() { printf '%s\n' "$2" | grep -qF -- "$1" && echo yes || echo no; }
+
+if [ ! -f "$G12_CHECK" ]; then
+  assert_eq "12: hooks/check-plugin-current.sh exists" "present" "absent"
+elif [ -z "$G12_JQ" ]; then
+  echo "  SKIP: Test Group 12 (jq is not installed)"
+else
+  # 12a: an older bundle warns once, with both numbers and the update command.
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"
+  assert_eq "12a: an older installed version prints one line naming both versions" \
+    "1 yes yes yes 0" \
+    "$(g12_lines) $(g12_has 'stride-codex 1.39.0 is installed' "$G12_OUT") $(g12_has '1.40.0 is published' "$G12_OUT") $(g12_has 'codex plugin update stride-codex' "$G12_OUT") $G12_RC"
+  assert_eq "12a: and writes nothing to stderr" "" "$G12_ERR"
+
+  # 12b: an older .agents/ copy names the installer instead.
+  SK=$(g12_tree loose 1.39.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"
+  assert_eq "12b: an older .agents/ copy names install.sh and install.ps1" "1 yes yes no" \
+    "$(g12_lines) $(g12_has 'stride-codex 1.39.0 is installed but 1.40.0 is published' "$G12_OUT") $(g12_has 're-run install.sh, or install.ps1 on Windows' "$G12_OUT") $(g12_has 'codex plugin update' "$G12_OUT")"
+
+  # 12c: equal versions, in either shape and with a missing part, are silent.
+  SK=$(g12_tree bundle 1.40.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R1="$G12_OUT|$G12_RC"
+  SK=$(g12_tree loose 1.40); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R2="$G12_OUT|$G12_RC"
+  assert_eq "12c: an equal installed version prints nothing" "|0 |0" "$R1 $R2"
+
+  # 12d: numeric per part, never as strings.
+  SK=$(g12_tree bundle 1.40.0); ST=$(g12_stub 1.9.0 0); g12_run "$ST" "$SK"; R1="$G12_OUT|$G12_RC"
+  SK=$(g12_tree bundle 1.9.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R2=$(g12_lines)
+  assert_eq "12d: 1.40.0 installed against a 1.9.0 pin prints nothing" "|0" "$R1"
+  assert_eq "12d: and 1.9.0 against a 1.40.0 pin warns" "1" "$R2"
+  SK=$(g12_tree bundle 1.40.0); ST=$(g12_stub 1.40.1 0); g12_run "$ST" "$SK"; R1=$(g12_lines)
+  SK=$(g12_tree bundle 2.0.0); ST=$(g12_stub 1.99.99 0); g12_run "$ST" "$SK"; R2=$(g12_lines)
+  SK=$(g12_tree bundle 1.040.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R3="$G12_OUT|$G12_RC"
+  assert_eq "12d: a later part decides, an earlier one wins, a leading zero is still base 10" "1 0 |0" "$R1 $R2 $R3"
+
+  # 12e: no readable installed version is never guessed, and makes no fetch.
+  SK=$(g12_tree none ""); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"
+  assert_eq "12e: an unreadable installed version prints nothing and exits 0" "|0|absent" \
+    "$G12_OUT|$G12_RC|$([ -e "$ST/curl.args" ] && echo present || echo absent)"
+  R=$(dirname "$(dirname "$(g12_tree none "")")"); mkdir -p "$R/.codex-plugin"
+  printf '{"name":"other-plugin","version":"0.1.0"}\n' > "$R/.codex-plugin/plugin.json"
+  ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$R/skills/stride-workflow"; R1="$G12_OUT|$G12_RC"
+  SK=$(g12_tree loose ""); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R2="$G12_OUT|$G12_RC"
+  R=$(dirname "$(dirname "$(g12_tree none "")")"); mkdir -p "$R/.codex-plugin"
+  printf 'not json\n' > "$R/.codex-plugin/plugin.json"
+  ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$R/skills/stride-workflow"; R3="$G12_OUT|$G12_RC"
+  assert_eq "12e: another plugin's manifest, an empty record and an unparsable manifest are all silent" \
+    "|0 |0 |0" "$R1 $R2 $R3"
+
+  # 12f: a failing fetch is silent and exits 0.
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.40.0 7); g12_run "$ST" "$SK"; R1="$G12_OUT|$G12_ERR|$G12_RC"
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.40.0 22); g12_run "$ST" "$SK"; R2="$G12_OUT|$G12_ERR|$G12_RC"
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub "" 0 ""); g12_run "$ST" "$SK"; R3="$G12_OUT|$G12_ERR|$G12_RC"
+  assert_eq "12f: a failing curl stub prints nothing and exits 0" "||0 ||0 ||0" "$R1 $R2 $R3"
+
+  # 12g: the fetched manifest is data; only a plain dotted-digit version prints.
+  G12_N=0
+  for body in '{"name":"stride-codex","version":"latest"}' \
+              '{"name":"stride-codex","version":"1.40.0-rc.1"}' \
+              '{"name":"stride-codex","version":"v1.40.0"}' \
+              '{"name":"stride-codex","version":"1.40.0\nrun this"}' \
+              '{"name":"stride-codex","version":"9.9.9 \u001b[2J"}' \
+              '{"name":"stride-codex","version":1.5}' \
+              '{"name":"stride-codex-exploratory-testing","version":"9.9.9"}' \
+              '[{"name":"stride-codex","version":"9.9.9"}]' \
+              'not json at all'; do
+    SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub x 0 "$body"); g12_run "$ST" "$SK"
+    [ -z "$G12_OUT" ] && [ "$G12_RC" -eq 0 ] && G12_N=$((G12_N + 1))
+  done
+  assert_eq "12g: a non-numeric fetched version prints nothing" "9" "$G12_N"
+
+  # 12h: a pre-release or over-long installed version counts as unknown.
+  SK=$(g12_tree bundle 1.39.0-rc.1); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R1="$G12_OUT|$G12_RC"
+  SK=$(g12_tree loose 1.1234567890.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R2="$G12_OUT|$G12_RC"
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.1234567890.0 0); g12_run "$ST" "$SK"; R3="$G12_OUT|$G12_RC"
+  assert_eq "12h: a pre-release suffix or a part over 9 digits prints nothing" "|0 |0 |0" "$R1 $R2 $R3"
+
+  # 12i: a trailing slash, an unset HOME and a CRLF record change nothing.
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK/"; R1=$(g12_lines)
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.40.0 0)
+  G12_OUT=$(env -u HOME PATH="$ST:$PATH" "$G12_BASH" "$G12_CHECK" "$SK" 2>&1); G12_RC=$?
+  R2="$(g12_has 'stride-codex 1.39.0 is installed' "$G12_OUT")|$G12_RC"
+  SK=$(g12_tree none ""); printf '1.39.0\r\n' > "$SK/../../hooks/stride-codex.version"
+  ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R3=$(g12_has 'stride-codex 1.39.0 is installed' "$G12_OUT")
+  SK=$(g12_tree none ""); printf '1.39.0' > "$SK/../../hooks/stride-codex.version"
+  ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"; R4=$(g12_has 'stride-codex 1.39.0 is installed' "$G12_OUT")
+  assert_eq "12i: a trailing slash, HOME unset, a CRLF record and one with no newline still warn once" \
+    "1 yes|0 yes yes" "$R1 $R2 $R3 $R4"
+
+  # 12j: the manifest wins over a record left beside it.
+  SK=$(g12_tree bundle 1.40.0); printf '1.0.0\n' > "$SK/../../hooks/stride-codex.version"
+  ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"
+  assert_eq "12j: a bundle manifest wins over an .agents/ record" "|0" "$G12_OUT|$G12_RC"
+
+  # 12k: no argument, no jq on PATH, and no curl on PATH are silent.
+  ST=$(g12_stub 1.40.0 0); g12_run "$ST"; R1="$G12_OUT|$G12_RC|$([ -e "$ST/curl.args" ] && echo fetched || echo none)"
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.40.0 0)
+  G12_OUT=$(PATH="$ST" "$G12_BASH" "$G12_CHECK" "$SK" 2>&1); R2="$G12_OUT|$?"
+  ND=$(mktemp -d "$TMPDIR_TEST/g12nocurl.XXXXXX"); ln -s "$G12_JQ" "$ND/jq"
+  G12_OUT=$(PATH="$ND" "$G12_BASH" "$G12_CHECK" "$SK" 2>&1); R3="$G12_OUT|$?"
+  assert_eq "12k: no argument, no jq and no curl print nothing and exit 0" "|0|none |0 |0" "$R1 $R2 $R3"
+
+  # 12l: one anonymous, bounded HTTPS fetch of the fixed catalog manifest.
+  SK=$(g12_tree bundle 1.39.0); ST=$(g12_stub 1.40.0 0); g12_run "$ST" "$SK"
+  A=$(cat "$ST/curl.args")
+  assert_eq "12l: curl -q comes first" "-q" "$(head -1 "$ST/curl.args")"
+  assert_eq "12l: the fixed catalog URL, HTTPS only, no redirect, bounded" "yes yes yes yes yes yes" \
+    "$(g12_has 'https://raw.githubusercontent.com/cheezy/stride-codex-marketplace/main/plugins/stride-codex/.codex-plugin/plugin.json' "$A") $(g12_has '=https' "$A") $(g12_has '--fail' "$A") $(printf '%s\n' "$A" | grep -qx -- '--max-redirs' && echo yes || echo no) $(printf '%s\n' "$A" | grep -A1 -x -- '--connect-timeout' | grep -qx 2 && echo yes || echo no) $(printf '%s\n' "$A" | grep -A1 -x -- '--max-time' | grep -qx 3 && echo yes || echo no)"
+  assert_eq "12l: and sends no credential" "0" \
+    "$(printf '%s\n' "$A" | grep -ciE 'authorization|bearer|cookie|netrc|stride_' || true)"
+
+  # 12m: the installers ship the script and record the version (behaviour).
+  G12_SRC=$(mktemp -d "$TMPDIR_TEST/g12src.XXXXXX")
+  G12_GIT=$(mktemp -d "$TMPDIR_TEST/g12git.XXXXXX")
+  { printf '#!/usr/bin/env bash\n'
+    printf '[ "$1" = clone ] || exit 64\n'
+    printf 'for d; do :; done\n'
+    printf 'mkdir -p "$d" && cp -R %s/. "$d/"\n' "$(printf '%q' "$G12_SRC")"
+  } > "$G12_GIT/git"
+  chmod +x "$G12_GIT/git"
+  for f in skills agents hooks .codex-plugin AGENTS.md; do cp -R "$PORT_ROOT/$f" "$G12_SRC/"; done
+  G12_VER=$(jq -r .version "$PORT_ROOT/.codex-plugin/plugin.json")
+  G12_P=$(mktemp -d "$TMPDIR_TEST/g12proj.XXXXXX")
+  ( cd "$G12_P" && PATH="$G12_GIT:$PATH" "$G12_BASH" "$PORT_ROOT/install.sh" --project > /dev/null 2>&1 ); R1=$?
+  assert_eq "12m: install.sh --project copies check-plugin-current.sh and records the version" \
+    "0 yes $G12_VER" \
+    "$R1 $([ -x "$G12_P/.agents/hooks/check-plugin-current.sh" ] && echo yes || echo no) $(cat "$G12_P/.agents/hooks/stride-codex.version" 2>/dev/null)"
+  ST=$(g12_stub "$G12_VER" 0); g12_run "$ST" "$G12_P/.agents/skills/stride-workflow"; R1="$G12_OUT|$G12_RC"
+  ST=$(g12_stub 999.0.0 0); g12_run "$ST" "$G12_P/.agents/skills/stride-workflow"; R2=$(g12_has 're-run install.sh' "$G12_OUT")
+  assert_eq "12m: and the installed check is silent when current, warns when behind" "|0 yes" "$R1 $R2"
+  jq '.version = "1.40.0-rc.1"' "$PORT_ROOT/.codex-plugin/plugin.json" > "$G12_SRC/.codex-plugin/plugin.json"
+  ( cd "$G12_P" && PATH="$G12_GIT:$PATH" "$G12_BASH" "$PORT_ROOT/install.sh" --project > /dev/null 2>&1 ); R1=$?
+  assert_eq "12m: a reinstall from a non-numeric version removes the old record" "0 absent" \
+    "$R1 $([ -e "$G12_P/.agents/hooks/stride-codex.version" ] && echo present || echo absent)"
+  cp "$PORT_ROOT/.codex-plugin/plugin.json" "$G12_SRC/.codex-plugin/plugin.json"
+  if command -v pwsh > /dev/null 2>&1; then
+    G12_P=$(mktemp -d "$TMPDIR_TEST/g12ps.XXXXXX")
+    ( cd "$G12_P" && PATH="$G12_GIT:$PATH" pwsh -NoProfile -NonInteractive -File "$PORT_ROOT/install.ps1" -Project > /dev/null 2>&1 ); R1=$?
+    assert_eq "12m: install.ps1 -Project copies the script and records the version, LF and no BOM" \
+      "0 yes $G12_VER $(printf '%s\n' "$G12_VER" | od -An -tx1 | tr -d ' \n')" \
+      "$R1 $([ -f "$G12_P/.agents/hooks/check-plugin-current.sh" ] && echo yes || echo no) $(cat "$G12_P/.agents/hooks/stride-codex.version" 2>/dev/null) $(od -An -tx1 "$G12_P/.agents/hooks/stride-codex.version" 2>/dev/null | tr -d ' \n')"
+    jq '.version = "1.40.0-rc.1"' "$PORT_ROOT/.codex-plugin/plugin.json" > "$G12_SRC/.codex-plugin/plugin.json"
+    ( cd "$G12_P" && PATH="$G12_GIT:$PATH" pwsh -NoProfile -NonInteractive -File "$PORT_ROOT/install.ps1" -Project > /dev/null 2>&1 ); R1=$?
+    cp "$PORT_ROOT/.codex-plugin/plugin.json" "$G12_SRC/.codex-plugin/plugin.json"
+    assert_eq "12m: an install.ps1 reinstall from a non-numeric version removes the old record" "0 absent" \
+      "$R1 $([ -e "$G12_P/.agents/hooks/stride-codex.version" ] && echo present || echo absent)"
+  else
+    echo "  SKIP: 12m install.ps1 run (pwsh is not installed)"
+  fi
+
+  # 12n: the wiring — Step 0 runs the script and relays its line once.
+  G12_S0=$(awk 'index($0, "5. **Is this copy of stride-codex out of date?") == 1 {f = 1} f && index($0, "**This step runs once per session") == 1 {exit} f' \
+    "$PORT_ROOT/skills/stride-workflow/SKILL.md")
+  assert_eq "12n: SKILL.md Step 0 runs check-plugin-current.sh and install.sh copies it" "yes yes yes yes yes" \
+    "$(g12_has 'bash "$SKILL_DIR/../../hooks/check-plugin-current.sh" "$SKILL_DIR"' "$G12_S0") $(g12_has 'Pass that line to the user once, as a plain statement: not a question, not a reason to wait' "$G12_S0") $(g12_has 'say nothing about it and carry on' "$G12_S0") $(grep -qF 'hooks/check-plugin-current.sh" "$INSTALL_DIR/hooks/check-plugin-current.sh"' "$PORT_ROOT/install.sh" && echo yes || echo no) $(grep -qF "'hooks.json', 'check-plugin-current.sh'" "$PORT_ROOT/install.ps1" && echo yes || echo no)"
+  assert_eq "12n: the README manual blocks copy the script and write the record" "yes yes yes yes" \
+    "$(grep -qxF 'cp -p stride-codex/hooks/check-plugin-current.sh .agents/hooks/check-plugin-current.sh' "$PORT_ROOT/README.md" && echo yes || echo no) $(grep -qxF 'jq -r .version stride-codex/.codex-plugin/plugin.json > .agents/hooks/stride-codex.version' "$PORT_ROOT/README.md" && echo yes || echo no) $(grep -qxF 'Copy-Item stride-codex\hooks\check-plugin-current.sh .agents\hooks\check-plugin-current.sh' "$PORT_ROOT/README.md" && echo yes || echo no) $(grep -qF 'Set-Content -NoNewline .agents\hooks\stride-codex.version' "$PORT_ROOT/README.md" && echo yes || echo no)"
+  assert_eq "12n: the script is executable in the repo" "yes" "$([ -x "$G12_CHECK" ] && echo yes || echo no)"
+  # The Step 0 block itself, run with its placeholder filled by a fixture path
+  # holding a space and a $: the value stays data and the check still warns.
+  G12_FENCE=$(printf '%s\n' "$G12_S0" | awk '/^   ```bash$/ {f = 1; next} f && /^   ```$/ {exit} f {sub(/^   /, ""); print}')
+  SK=$(g12_tree bundle 1.39.0); G12_ODD="$(dirname "$(dirname "$SK")")/odd \$(touch G12PWNED) dir"
+  mkdir -p "$G12_ODD"; cp -R "$(dirname "$(dirname "$SK")")/." "$G12_ODD/" 2>/dev/null
+  cp "$G12_CHECK" "$G12_ODD/hooks/check-plugin-current.sh"
+  G12_BLOCK=$(printf '%s\n' "$G12_FENCE" | awk -v v="$G12_ODD/skills/stride-workflow" '{gsub(/<skill-dir>/, v); print}')
+  ST=$(g12_stub 1.40.0 0)
+  G12_OUT=$(cd "$TMPDIR_TEST" && PATH="$ST:$PATH" "$G12_BASH" -c "$G12_BLOCK" 2>&1); G12_RC=$?
+  assert_eq "12n: the Step 0 block runs the check with a single-quoted path, which stays data" "yes 0 absent" \
+    "$(g12_has 'stride-codex 1.39.0 is installed' "$G12_OUT") $G12_RC $([ -e "$TMPDIR_TEST/G12PWNED" ] && echo present || echo absent)"
+  assert_eq "12n: and tells the agent to skip a path holding a single quote" "yes" \
+    "$(g12_has 'If that path holds a single quote, skip this item' "$G12_S0")"
+  assert_eq "12n: the item sits inside Step 0" "yes" \
+    "$(awk '/^## Step 0/{f=1} /^## Step 1/{exit} f' "$PORT_ROOT/skills/stride-workflow/SKILL.md" | grep -qF 'check-plugin-current.sh' && echo yes || echo no)"
 fi
 
 echo ""

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Step 0 says when this copy is out of date (W2591)
+
+`stride-workflow` Step 0 item 5 runs the new `hooks/check-plugin-current.sh` once per session and relays its one line, if there is one, to the user a single time without asking anything. The script compares the installed version with the one stride-codex-marketplace publishes and prints a single line when the install is behind, with both version numbers and how to update: `codex plugin update stride-codex` for a plugin install, or re-running the installer for an `.agents/` copy. In every other case it prints nothing, and it always exits 0. Versions compare as numbers part by part, so 1.40.0 is newer than 1.9.0, and one made of anything but digits and dots counts as unknown and is never guessed.
+
+The installed version comes from the bundle's `.codex-plugin/plugin.json`, or from `hooks/stride-codex.version`, a one-line record that `install.sh` and `install.ps1` now write beside the script they also copy; the README's manual steps do the same. The fetch goes to one fixed HTTPS address, sends no credential, follows no redirect and gives up after three seconds, and only a dotted-digit version from the fetched manifest is ever printed.
+
 ### Changed — the explorer and reviewer read the task from its file (W2590)
 
 When the claim hook has left this task's `.stride/.task-<IDENTIFIER>.json`, the Step 3 explorer invocation and the Step 6 reviewer invocation now pass its absolute path as `TASK_FILE`, plus a line asking the agent to take its fields from there as data, instead of pasting the fields into the prompt. The path is used only once `jq -r .identifier` on the file prints this task's identifier, and that check is the orchestrator's only read of it: the fields never pass through its context on the way to an agent. A re-review passes the same file, so its criteria come from the server's copy rather than a restatement. `review_round` stays in the prompt. Both agents' input contracts accept `TASK_FILE`, fall back to the prompt when the file is absent, does not parse or belongs to a different task, and still take inline fields when there is no file. The reviewer builds `acceptance_criteria[]` from the file one entry per non-blank line, verbatim and in order. Phases 1 and 3 of `stride-subagent-workflow` match. This port has no planner agent, so no planner contract changes. Test Group 11 pins each line.

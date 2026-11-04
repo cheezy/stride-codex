@@ -98,6 +98,15 @@ Whether you arrive here from a creation intent or the build loop, **a claim fail
 
    **This is a statement, not a question — never wait on an answer, and never edit their `.gitignore` yourself.** Say it once, briefly, and only when something is actually missing; then carry on. Nothing here blocks. Two things worth saying with it: `.gitignore` is **inert for a path git already tracks** (that needs `git rm --cached`, which is why "before the first session" is the difference between the line working and doing nothing), and `.exploratory/` is only the **default** location — a command-skill's `--output` can put one document elsewhere, and a redirected path needs its own entry.
 
+5. **Is this copy of stride-codex out of date? Say so, never stop for it.** Codex runs the installed copy of these skills and agents, and the `skills_version` on a claim is `"1.0"` in every release, so a fix published since the install does nothing here and the server cannot tell. `<skill-dir>` is the folder holding this `SKILL.md`: the path Codex lists for this skill, without the trailing `/SKILL.md`. If that path holds a single quote, skip this item; otherwise put it between the single quotes exactly as Codex gave it, where nothing in it can run, and run once:
+
+   ```bash
+   SKILL_DIR='<skill-dir>'
+   bash "$SKILL_DIR/../../hooks/check-plugin-current.sh" "$SKILL_DIR"
+   ```
+
+   It reads the installed version (from the plugin bundle's `.codex-plugin/plugin.json`, or from the `hooks/stride-codex.version` record that `install.sh` and `install.ps1` leave in an `.agents/` copy) and the version stride-codex-marketplace publishes, and prints one line only when the installed one is lower. Pass that line to the user once, as a plain statement: not a question, not a reason to wait, and never a cue to run the update yourself. No output means current or unknown, and needs no remark. The same goes when the script is missing (a copy made before this check existed) or `bash` cannot run it: say nothing about it and carry on.
+
 **This step runs once per session, not once per task.**
 
 ---
