@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-11-08
+
+Nothing in this release has been run in a live Codex CLI session: both changes below are pinned by `hooks/test-stride-hook.sh` and were not dispatched live, and the manual live checks planned for this release (W2677) were not run. The deep review now sends `stride-codex-security-review`'s `modes/reproduction.md`, whose Linux `bwrap` path has still not been run (see that plugin's 0.2.1 entry).
+
 ### Changed — the deep security review sends the plugin's mode files and reads its result from a file (W2673)
 
 Since stride-codex-security-review's W2636 its `security-reviewer` agent is a core that reads no rule file, and it writes its result to disk only when the caller sends `modes/result-file.md` together with `SECURITY_RESULT_PATH`. The considerations-mode deep review in `stride-workflow` Step 6 sent only the diff and the considerations, so every deep review ran on the core's compact rules, could reproduce nothing and came back inline: at `434ed6b` no file under `skills/`, `agents/` or `docs/` held `mode: considerations`, `SECURITY_RESULT_PATH` or `budget reached` (`git grep -l -F`). The dispatch now sends what that plugin's [0.2.0] *For stride-codex* section lists, in the order its own `stride-security-review` skill uses (its *Rule files* section and Step 4a).
