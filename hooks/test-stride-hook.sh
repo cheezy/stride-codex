@@ -4361,6 +4361,290 @@ assert_eq "22h: no block key, schema_version unchanged, and the agent's two cano
 assert_eq "22i: step 8 places the twin checks last" "1" \
   "$(g22_count 'Last, give the step 6 twin checks: each touched file, the commands run and the counterparts found, or `none`' "$G22_S8")"
 
+# ============================================================
+# Test Group 23: the deep security review sends the plugin's mode files and
+# a result path (W2673)
+# ============================================================
+#
+# Since W2636 the security-reviewer agent is a core that reads no rule file,
+# and it writes a result file only when the caller sends modes/result-file.md
+# with SECURITY_RESULT_PATH. The considerations-mode dispatch now opens with
+# the tag, sends the considerations one per line, one key line and three keyed
+# mode files, and a per-round result path it alone reads back. Each rule is
+# counted once in the workflow's sub-step (from its heading to its Decision
+# Summary) and once in the subagent skill's twin line, and the path block and
+# the Step 8 cleanup are run for real.
+
+echo ""
+echo "=== Test Group 23: the deep security review sends the mode blocks and a result path (W2673) ==="
+
+G23_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G23_SW="$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md"
+G23_RM="$PORT_ROOT/README.md"
+G23_CL="$PORT_ROOT/CHANGELOG.md"
+# g23_slice <file> <start-line-text> <stop-line-text>: the lines from the first
+# line containing start up to (not including) the next line containing stop,
+# flattened to one space-separated line
+g23_slice() {
+  awk -v s="$2" -v e="$3" 'p && index($0, e) { exit } index($0, s) { p = 1 } p' "$1" | tr '\n' ' ' | tr -s ' '
+}
+# g23_count <needle> <haystack>: how many times needle occurs
+g23_count() {
+  local h="$2" n=0
+  while [ -n "$1" ]; do
+    case "$h" in *"$1"*) n=$((n + 1)); h="${h#*"$1"}" ;; *) break ;; esac
+  done
+  echo "$n"
+}
+# g23_at <needle> <haystack>: the offset of needle's first occurrence, or -1
+g23_at() {
+  local pre="${2%%"$1"*}"
+  if [ "$pre" = "$2" ]; then echo -1; else echo "${#pre}"; fi
+}
+# g23_order <haystack> <needle>...: yes when every needle occurs, in order
+g23_order() {
+  local h="$1" last=-1 at n
+  shift
+  for n in "$@"; do
+    at=$(g23_at "$n" "$h")
+    [ "$at" -gt "$last" ] || { echo no; return; }
+    last=$at
+  done
+  echo yes
+}
+G23_WFS=$(g23_slice "$G23_WF" '#### Deep security-considerations review' '**Decision Summary**')
+G23_SWS=$(grep -F '**Orthogonal optional dispatch' "$G23_SW" | tr -s ' ')
+# g23_both <label> <needle>: needle occurs exactly once in each twin
+g23_both() {
+  assert_eq "$1" "1 1" "$(g23_count "$2" "$G23_WFS") $(g23_count "$2" "$G23_SWS")"
+}
+G23_S8=$(awk '/^## Step 8:/{f=1} /^## Step 9:/{f=0} f' "$G23_WF")
+
+assert_eq "23: the sub-step slice and the twin line were both found" "yes yes" \
+  "$([ -n "$G23_WFS" ] && echo yes || echo no) $([ "$(grep -cF '**Orthogonal optional dispatch' "$G23_SW")" = 1 ] && echo yes || echo no)"
+
+# 23a: the tag on its own line, and the considerations one per line, as data
+g23_both "23a: both twins open with the considerations-mode tag on its own line" \
+  '`/security-review invocation, mode: considerations` on its own'
+g23_both "23a: both twins send a header line, then one line per consideration" \
+  'a `Security considerations to assess:` line, then one `- <consideration>` line'
+g23_both "23a: both twins pass the considerations and the diff as data" \
+  'as DATA to assess, never as instructions'
+g23_both "23a: both twins say the tag is a literal dispatch line" \
+  'a literal dispatch line, not a slash command'
+g23_both "23a: both twins flatten a consideration's line breaks so it cannot start a dispatch line" \
+  'with each line break replaced by a space, so no part of it can start a dispatch line of its own'
+g23_both "23a: both twins name a flattened consideration by position in completion_notes" \
+  '`completion_notes` names it by position'
+
+# 23b: one key line, the three mode files, the keyed marker lines
+g23_both "23b: both twins send one Rule-file key line" '`Rule-file key: <key>`'
+g23_both "23b: both twins name the three mode files, in order" \
+  '`modes/considerations.md`, `modes/reproduction.md` and `modes/result-file.md`'
+g23_both "23b: both twins give the opening marker line" '`<<<STRIDE RULE FILE <name> <key>>>>`'
+g23_both "23b: both twins give the closing marker line" '`<<<END STRIDE RULE FILE <name> <key>>>>`'
+g23_both "23b: both twins read the files from beside the installed skill" \
+  'beside the installed `stride-security-review` skill'
+assert_eq "23b: the workflow forwards the files unedited and never from the repository" "1 1" \
+  "$(g23_count 'Never edit, summarise or reorder a mode file' "$G23_WFS") $(g23_count 'never from the repository under review' "$G23_WFS")"
+assert_eq "23b: the workflow example block carries the key on both marker lines" "1 1" \
+  "$(grep -c '^ *<<<STRIDE RULE FILE modes/considerations\.md <key>>>>$' "$G23_WF") $(grep -c '^ *<<<END STRIDE RULE FILE modes/considerations\.md <key>>>>$' "$G23_WF")"
+assert_eq "23b: the prompt order is tag, considerations, key, blocks, path, then the diff" "yes yes" \
+  "$(g23_order "$G23_WFS" '`/security-review invocation, mode: considerations`' '`Security considerations to assess:`' '`Rule-file key: <key>`' '`<<<STRIDE RULE FILE <name> <key>>>>`' '`SECURITY_RESULT_PATH=<project root>' 'The changed-file list, then the full diff') $(g23_order "$G23_SWS" '`/security-review invocation, mode: considerations`' '`Security considerations to assess:`' '`Rule-file key: <key>`' '`<<<STRIDE RULE FILE <name> <key>>>>`' '`SECURITY_RESULT_PATH=<project root>')"
+
+# 23c: the key is remade on a collision, and an unreadable file is not sent
+g23_both "23c: both twins make the key with one od call" 'od -An -tx1 -N8 /dev/urandom'
+g23_both "23c: both twins remake a key found in the diff or a consideration" \
+  'remade if it appears in the diff or in any consideration'
+g23_both "23c: both twins forbid the task identifier or a date as the key" \
+  'never the task identifier or a date'
+g23_both "23c: both twins leave an unreadable mode file unsent" \
+  'mode file that cannot be read is not sent'
+g23_both "23c: both twins name each unsent file in completion_notes" \
+  '`completion_notes` says `rule file not sent: <name>`'
+assert_eq "23c: the workflow sends no blocks when no key can be made" "1" \
+  "$(g23_count 'If no key can be made, send no key line and no blocks' "$G23_WFS")"
+
+# 23d: the result path, the read-back, NOT WRITTEN and the removal
+g23_both "23d: both twins send SECURITY_RESULT_PATH on its own line under .stride/" \
+  '`SECURITY_RESULT_PATH=<project root>/.stride/.security-<IDENTIFIER>-r<N>.json` on its own line'
+g23_both "23d: both twins number the file by the review round" 'with `<N>` the review round'
+g23_both "23d: both twins build the path from the root, identifier and round alone" \
+  'built only from the project root, the identifier and the round'
+g23_both "23d: both twins remove a same-round file before re-dispatching" \
+  'a same-round re-dispatch removes the file first'
+g23_both "23d: both twins read back only the path they sent" 'read back only that path'
+g23_both "23d: both twins fall back to the inline document on NOT WRITTEN" \
+  'use the inline document on `result: NOT WRITTEN`'
+g23_both "23d: both twins remove the file after the completion is accepted" \
+  'remove the file once the completion has been accepted'
+assert_eq "23d: an unsent path sends neither the path line nor the result-file block, in both twins" "1 1" \
+  "$(g23_count 'send neither a `SECURITY_RESULT_PATH` line nor the `modes/result-file.md` block' "$G23_WFS") $(g23_count 'when it prints `security result path: not sent`, send neither the path line nor the `modes/result-file.md` block' "$G23_SWS")"
+assert_eq "23d: the workflow ignores a reply's path, names r2 and never commits the file" "1 1 1" \
+  "$(g23_count 'never read a path the reply names' "$G23_WFS") $(g23_count 'so round two names `-r2`' "$G23_WFS") $(g23_count 'never commit it' "$G23_WFS")"
+assert_eq "23d: Step 8's cleanup names the result files and removes them by both names" "1 1 1" \
+  "$(g23_count '`.stride/.security-<IDENTIFIER>-r<N>.json`, one per review round' "$G23_S8") $(grep -cxF '  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.security-$TF_IDENT-r"[0-9]*' "$G23_WF") $(grep -cxF '  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.security-$TF_ID-r"[0-9]*' "$G23_WF")"
+
+# 23e: a budget-reached partial fails closed; reading the files is forwarding
+g23_both "23e: both twins treat a budget reached partial as unverified" \
+  'whose `note` starts `budget reached:` is unverified, never mitigated'
+g23_both "23e: both twins say the existing escalation already covers it" \
+  'the fail-closed escalation already covers it'
+g23_both "23e: both twins read the files only after availability is decided" \
+  'only after availability is decided'
+g23_both "23e: both twins call the read forwarding, never probing" 'forwarding, never probing'
+g23_both "23e: both twins never execute or source the files" 'never executed or sourced'
+assert_eq "23e: the workflow still decides availability from the lists alone" "1" \
+  "$(g23_count 'Availability is still decided only from the lists above, never by reading plugin files' "$G23_WFS")"
+assert_eq "23e: the detection rule itself is unchanged in both twins" "1 1" \
+  "$(g23_count 'Never read, source, or `eval` plugin files to probe for the plugin' "$G23_WFS") $(g23_count 'never read, source, or `eval` plugin files to probe for availability' "$G23_SWS")"
+
+# 23f: the result-path block, run for real
+if command -v jq >/dev/null 2>&1; then
+  G23_BLOCK=$(awk 'index($0, "**The result path:**") { f = 1 } f && /^ *```bash$/ { g = 1; next } g && /^ *```$/ { exit } g' "$G23_WF" | sed 's/^      //')
+  g23_block() {
+    local _i _n _r
+    _i=$(jq -rn --arg v "$1" '$v | @sh'); _n=$(jq -rn --arg v "$2" '$v | @sh'); _r=$(jq -rn --arg v "$3" '$v | @sh')
+    printf '%s\n' "$G23_BLOCK" | awk -v i="$_i" -v n="$_n" -v r="$_r" '
+      /^SR_IDENT=\047<identifier>\047$/ {print "SR_IDENT=" i; next}
+      /^SR_ID=\047<numeric id>\047$/ {print "SR_ID=" n; next}
+      /^SR_ROUND=\047<review round>\047$/ {print "SR_ROUND=" r; next} {print}'
+  }
+  g23_run() { # <project dir> <ident> <id> <round>
+    ( cd "$1" && env -u CLAUDE_PROJECT_DIR CODEX_PROJECT_DIR="$1" bash -c "$(g23_block "$2" "$3" "$4")" 2>&1 )
+  }
+  assert_eq "23f: the block's three placeholders are where g23_block expects them" "3" \
+    "$(printf '%s\n' "$G23_BLOCK" | grep -c -e "^SR_IDENT='<identifier>'\$" -e "^SR_ID='<numeric id>'\$" -e "^SR_ROUND='<review round>'\$")"
+  D="$TMPDIR_TEST/g23p"; mkdir -p "$D/.stride"; : > "$D/.stride.md"; DR=$(cd "$D" && pwd -P)
+  assert_eq "23f: round two names an absolute -r2 path under the project's .stride/" \
+    "SECURITY_RESULT_PATH=$DR/.stride/.security-W1-r2.json" "$(g23_run "$D" W1 7 2)"
+  assert_eq "23f: an identifier that is not a plain token falls back to the numeric id" \
+    "SECURITY_RESULT_PATH=$DR/.stride/.security-7-r1.json" "$(g23_run "$D" '../x' 7 1)"
+  assert_contains "23f: a hostile identifier and id send no path" \
+    'security result path: not sent' "$(g23_run "$D" '../x' '../y' 1)"
+  assert_contains "23f: a round that is not a number sends no path" \
+    'security result path: not sent' "$(g23_run "$D" W1 7 r2)"
+  : > "$D/.stride/.security-W1-r1.json"
+  assert_eq "23f: a same-round file is removed before the path is sent" \
+    "SECURITY_RESULT_PATH=$DR/.stride/.security-W1-r1.json absent" \
+    "$(g23_run "$D" W1 7 1) $([ -e "$D/.stride/.security-W1-r1.json" ] && echo present || echo absent)"
+  : > "$D/outside.json"; ln -s "$D/outside.json" "$D/.stride/.security-W1-r3.json"
+  assert_eq "23f: a link at the path is removed, never its target" \
+    "SECURITY_RESULT_PATH=$DR/.stride/.security-W1-r3.json present" \
+    "$(g23_run "$D" W1 7 3) $([ -e "$D/outside.json" ] && echo present || echo absent)"
+  mkdir -p "$D/.stride/.security-W1-r4.json"
+  assert_eq "23f: a directory at the path sends no path and is left alone" "not sent present" \
+    "$(g23_run "$D" W1 7 4 | grep -o 'not sent') $([ -d "$D/.stride/.security-W1-r4.json" ] && echo present || echo absent)"
+  D2="$TMPDIR_TEST/g23l"; mkdir -p "$D2/real"; : > "$D2/.stride.md"; ln -s "$D2/real" "$D2/.stride"
+  assert_contains "23f: a symlinked .stride/ sends no path" 'security result path: not sent' "$(g23_run "$D2" W1 7 1)"
+  D3="$TMPDIR_TEST/g23 sp"; mkdir -p "$D3/.stride"; : > "$D3/.stride.md"
+  assert_contains "23f: a project root holding a space sends no path" 'security result path: not sent' "$(g23_run "$D3" W1 7 1)"
+else
+  echo "  SKIP: 23f needs jq"
+fi
+
+# 23g: Step 8's cleanup removes every round's result file, by both names
+if command -v jq >/dev/null 2>&1; then
+  G23_CB=$(printf '%s\n' "$G23_S8" | awk '/^\*\*Artifact cleanup/{f=1} f&&/^```bash/{b=1;next} b&&/^```/{exit} b')
+  g23_cb() {
+    local _i _n
+    _i=$(jq -rn --arg v "$1" '$v | @sh'); _n=$(jq -rn --arg v "$2" '$v | @sh')
+    printf '%s\n' "$G23_CB" | awk -v i="$_i" -v n="$_n" '
+      /^TF_IDENT=\047<identifier>\047$/ {print "TF_IDENT=" i; next}
+      /^TF_ID=\047<numeric id>\047$/ {print "TF_ID=" n; next} {print}'
+  }
+  D="$TMPDIR_TEST/g23c"; mkdir -p "$D/.stride"; : > "$D/.stride.md"
+  for f in .security-W1-r1.json .security-W1-r2.json .security-W1-r2.json.tmp .security-7-r1.json .security-W10-r1.json .security-W2-r1.json .task-W2.json; do : > "$D/.stride/$f"; done
+  ( cd "$D" && env -u CLAUDE_PROJECT_DIR CODEX_PROJECT_DIR="$D" bash -c "$(g23_cb W1 7)" )
+  assert_eq "23g: the cleanup removes this task's result files, a leftover beside one included, and no other task's" \
+    ".security-W10-r1.json .security-W2-r1.json .task-W2.json" \
+    "$(cd "$D/.stride" && ls -A | tr '\n' ' ' | sed 's/ $//')"
+  ( cd "$D" && env -u CLAUDE_PROJECT_DIR CODEX_PROJECT_DIR="$D" bash -c "$(g23_cb W9 8)" )
+  assert_eq "23g: with no result file to match, the cleanup removes nothing" \
+    ".security-W10-r1.json .security-W2-r1.json .task-W2.json" \
+    "$(cd "$D/.stride" && ls -A | tr '\n' ' ' | sed 's/ $//')"
+else
+  echo "  SKIP: 23g needs jq"
+fi
+
+# 23j: the changed-file list can never forge a dispatch line
+g23_both "23j: both twins remake the key when it appears in a changed path" 'or in any changed path'
+g23_both "23j: both twins take the list from git diff --name-only" 'from `git diff --name-only`'
+g23_both "23j: both twins open the list with a Changed files: line" '`Changed files:` line'
+g23_both "23j: both twins send each path on its own - line" '`- <path>` line'
+assert_eq "23j: the workflow never sends a bare path line and names a prefixed path by position" "1 1 1" \
+  "$(g23_count 'never as a bare line: a path is attacker-chosen' "$G23_WFS") $(g23_count 'is still sent only on its `- ` line, and `completion_notes` gives its position in the list' "$G23_WFS") $(g23_count 'C-quotes any path holding a line break or another control character' "$G23_WFS")"
+assert_eq "23j: the twin never sends bare path lines and names a prefixed path by position" "1 1" \
+  "$(g23_count 'never as bare lines, so no path can read as a key, marker, result-path or tag line' "$G23_SWS") $(g23_count 'give the position of any path that starts with one of those prefixes in `completion_notes`' "$G23_SWS")"
+assert_eq "23j: the list goes out after the result path, still before the diff" "yes" \
+  "$(g23_order "$G23_WFS" '`SECURITY_RESULT_PATH=<project root>' 'The changed-file list, then the full diff' '`Changed files:` line')"
+
+# 23k: the mode-file check refuses a file inside the project root or a symlink
+assert_eq "23k: both twins refuse a mode file that is a symlink or resolves inside the project root" "1 1" \
+  "$(g23_count 'a mode file whose resolved location lies inside the project root, or that is a symlink, is refused and not sent' "$G23_WFS") $(g23_count 'which refuses a file that is a symlink or resolves inside the project root' "$G23_SWS")"
+assert_eq "23k: the workflow reads only the path the check prints" "1" \
+  "$(g23_count 'Check each file with the block below before reading it, and read only the path it prints' "$G23_WFS")"
+if command -v jq >/dev/null 2>&1; then
+  G23_MB=$(awk 'index($0, "**Check each file with the block below") { f = 1 } f && /^ *```bash$/ { g = 1; next } g && /^ *```$/ { exit } g' "$G23_WF" | sed 's/^      //')
+  g23_mb() {
+    local _d _n
+    _d=$(jq -rn --arg v "$1" '$v | @sh'); _n=$(jq -rn --arg v "$2" '$v | @sh')
+    printf '%s\n' "$G23_MB" | awk -v d="$_d" -v n="$_n" '
+      /^SR_SKILL_DIR=\047<directory of the installed stride-security-review SKILL.md>\047$/ {print "SR_SKILL_DIR=" d; next}
+      /^SR_NAME=\047<mode file name>\047$/ {print "SR_NAME=" n; next} {print}'
+  }
+  g23_mrun() { # <project dir> <skill dir> <name>
+    ( cd "$1" && env -u CLAUDE_PROJECT_DIR CODEX_PROJECT_DIR="$1" bash -c "$(g23_mb "$2" "$3")" 2>&1 )
+  }
+  assert_eq "23k: the block's two placeholders are where g23_mb expects them" "2" \
+    "$(printf '%s\n' "$G23_MB" | grep -c -e "^SR_SKILL_DIR='<directory of the installed stride-security-review SKILL.md>'\$" -e "^SR_NAME='<mode file name>'\$")"
+  P="$TMPDIR_TEST/g23m/proj"; K="$TMPDIR_TEST/g23m/skill"
+  mkdir -p "$P/.stride" "$K/modes" "$P/.agents/skills/sr/modes"; : > "$P/.stride.md"
+  echo rules > "$K/modes/considerations.md"; echo rules > "$P/.agents/skills/sr/modes/considerations.md"
+  KR=$(cd "$K" && pwd -P)
+  assert_eq "23k: a mode file beside an installed skill outside the project is sent" \
+    "rule file ok: $KR/modes/considerations.md" "$(g23_mrun "$P" "$K" modes/considerations.md)"
+  assert_contains "23k: a mode file inside the project root is refused" \
+    'rule file not sent: modes/considerations.md — it resolves inside the project root' "$(g23_mrun "$P" "$P/.agents/skills/sr" modes/considerations.md)"
+  ln -s "$P/.agents/skills/sr" "$TMPDIR_TEST/g23m/link"
+  assert_contains "23k: a skill directory that links into the project root is refused" \
+    'rule file not sent: modes/considerations.md — it resolves inside the project root' "$(g23_mrun "$P" "$TMPDIR_TEST/g23m/link" modes/considerations.md)"
+  ln -s "$K/modes/considerations.md" "$K/modes/reproduction.md"
+  assert_contains "23k: a mode file that is a symlink is refused" \
+    'rule file not sent: modes/reproduction.md — a symlink, missing or empty' "$(g23_mrun "$P" "$K" modes/reproduction.md)"
+  : > "$K/modes/result-file.md"
+  assert_contains "23k: an empty mode file is refused" \
+    'rule file not sent: modes/result-file.md — a symlink, missing or empty' "$(g23_mrun "$P" "$K" modes/result-file.md)"
+  assert_contains "23k: a name that is not one of the three mode files is refused" \
+    'rule file not sent: <unknown name>' "$(g23_mrun "$P" "$K" ../../etc/passwd)"
+  assert_contains "23k: a relative skill directory is refused, even one that resolves outside the project" \
+    'rule file not sent: modes/considerations.md — no project root or no absolute skill directory' "$(g23_mrun "$P" "../skill" modes/considerations.md)"
+  mkdir -p "$TMPDIR_TEST/g23m/noroot"
+  assert_contains "23k: with no project root to check against, the file is refused" \
+    'rule file not sent: modes/considerations.md — no project root or no absolute skill directory' \
+    "$( cd "$TMPDIR_TEST/g23m/noroot" && env -u CLAUDE_PROJECT_DIR -u CODEX_PROJECT_DIR bash -c "$(g23_mb "$K" modes/considerations.md)" 2>&1 )"
+  assert_contains "23k: a project root of / refuses every file" \
+    'rule file not sent: modes/considerations.md — it resolves inside the project root' "$(g23_mrun / "$K" modes/considerations.md)"
+else
+  echo "  SKIP: 23k needs jq"
+fi
+
+# 23h: what must not change, and the docs
+assert_eq "23h: the sub-step heading is unchanged" "1" \
+  "$(grep -c '^#### Deep security-considerations review (Optional, Gated)$' "$G23_WF")"
+assert_eq "23h: the telemetry fold-in sentence is unchanged" "1" \
+  "$(g23_count 'Fold the duration; do NOT increment `dispatch_count`' "$G23_WFS")"
+assert_eq "23h: the twin still says to keep the two in sync" "1" \
+  "$(g23_count 'keep the two in sync' "$G23_SWS")"
+assert_eq "23h: README describes the tag, the result path and the budget rule" "1 1 1" \
+  "$(grep -c 'mode: considerations' "$G23_RM") $(grep -c 'SECURITY_RESULT_PATH' "$G23_RM") $(grep -c 'budget reached:' "$G23_RM")"
+assert_eq "23h: the changelog's first section is [Unreleased] and carries this entry" "## [Unreleased] 1" \
+  "$(grep -m1 '^## \[' "$G23_CL") $(grep -c '^### Changed — .*(W2673)$' "$G23_CL")"
+
+# 23i: a None placeholder still skips the deep review in both twins
+assert_eq "23i: a None placeholder still does not count as a consideration" "1 1" \
+  "$(g23_count 'does NOT count as a real consideration' "$G23_WFS") $(g23_count 'placeholder with no real surface does **not** count' "$G23_SWS")"
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"
