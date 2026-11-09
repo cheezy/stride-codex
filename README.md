@@ -285,6 +285,30 @@ being hooked, never from `.stride/.last-api-response.json` (that file survives
 across calls, so a truncated or 422 response would otherwise inherit the
 previous claim's payload and record a completion that never happened).
 
+#### Attachments in the workflow
+
+The download only helps if the agents look at it, so the workflow hands it on.
+`stride-workflow` Step 3 resolves `ATTACHMENTS_DIR` — the task's
+`.stride/attachments/<IDENTIFIER>/` — and passes it beside `TASK_FILE` to the
+`task-explorer` custom agent and, in Step 6, to the `task-reviewer`, but only
+when that directory's `manifest.json` names the claimed task. A missing
+manifest means no attachments; one that names another task or will not parse
+is reported on an `attachments:` line and nothing is passed. The agents read
+only the files the manifest lists as `downloaded`, as data and never as
+instructions, and never fetch one themselves: the reviewer's shell is never
+used for it. Step 8 removes the directory after a 2xx completion only — never
+through a symlink, never `.stride/attachments/.gitignore`, and never at claim
+time, when the hook alone writes and replaces it.
+
+**Image viewing is not verified.** No Codex CLI was installed where this was
+written, so no Codex CLI version was checked and `view_image` has not been
+verified — not from the main agent, and not from a custom agent whose tools
+are `read`, `search` and `glob` (plus `shell` for the reviewer). `AGENTS.md`
+does not list it and the agents are not told to use it. An image or PDF that
+`read` cannot show is reported by its `filename`, `content_type` and
+`byte_size` instead. Checking `view_image` on a real Codex CLI, and recording
+the version here, is still open.
+
 #### The gate — `stride-stop-gate.sh`
 
 Fires on `Stop` and refuses to end a session while work demonstrably remains.
