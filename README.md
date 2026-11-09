@@ -164,7 +164,7 @@ git push origin main
 ` ` `
 ```
 
-**`after_goal` (v1.11.0+):** the Stride server bundles an `after_goal` entry in the `hooks` array of the response of `/complete` or `/mark_reviewed` when the completing task is the final child of a parent goal. Codex CLI's plugin hook script records loop state only and never executes a `.stride.md` section, so the agent remains responsible for the entire after_goal lifecycle: detect the entry by reading the **canonical capture file** (below) rather than truncatable context, read `## after_goal` from `.stride.md`, export `GOAL_ID` / `GOAL_IDENTIFIER` / `GOAL_TITLE` / `GOAL_DESCRIPTION` from the entry's `hook.env` block, execute the section's commands via shell, capture `{exit_code, output, duration_ms}`, and POST the result to `PATCH /api/tasks/:goal_id/after_goal` to flip the goal to Done. A missing `## after_goal` section is a clean no-op (back-compat — the server's grace-window worker covers the goal transition, flipping only the goal's status; it never runs `## after_goal` or performs any push). The hook is general-purpose — Slack notifications, artifact archival, release pipelines, project-level smoke tests are all valid uses.
+**`after_goal` (v1.11.0+):** the Stride server bundles an `after_goal` entry in the `hooks` array of the response of `/complete` or `/mark_reviewed` when the completing task is the final child of a parent goal. Codex CLI's plugin hook script never executes a `.stride.md` section, so the agent remains responsible for the entire after_goal lifecycle: detect the entry by reading the **canonical capture file** (below) rather than truncatable context, read `## after_goal` from `.stride.md`, export `GOAL_ID` / `GOAL_IDENTIFIER` / `GOAL_TITLE` / `GOAL_DESCRIPTION` from the entry's `hook.env` block, execute the section's commands via shell, capture `{exit_code, output, duration_ms}`, and POST the result to `PATCH /api/tasks/:goal_id/after_goal` to flip the goal to Done. A missing `## after_goal` section is a clean no-op (back-compat — the server's grace-window worker covers the goal transition, flipping only the goal's status; it never runs `## after_goal` or performs any push). The hook is general-purpose — Slack notifications, artifact archival, release pipelines, project-level smoke tests are all valid uses.
 
 **Truncation-proof detection (v1.23.0+):** the `/complete` and `/mark_reviewed` curls capture the full response to `${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json` (via `tee`; there is **no** `curl --output` fallback as of 1.38.0 — the `PreToolUse` guard refuses it, because taking the response off stdout is what loses the loop-state record), and the detect step reads the after_goal entry and `GOAL_*` env from that file with `jq` — not from the agent's truncatable context. If the file is absent, empty, or invalid JSON, a fresh, self-contained `GET /api/tasks/:id/after_goal_status` re-confirms whether after_goal is armed, sourcing the URL/token durably from `.stride_auth.md` and `TASK_ID` from the captured file rather than a prior turn's export. The two detection paths are mutually exclusive, so `## after_goal` runs at most once. The `.stride/` directory holds this agent-local state and must be gitignored. See `stride-workflow` SKILL.md Step 7+9 for the full procedure.
 
@@ -240,7 +240,7 @@ The `stride-creating-tasks`, `stride-enriching-tasks`, and `stride-workflow` ski
 
 ## Hook Execution
 
-**Codex CLI does have a hook system** (stable since rust-v0.124.0), and this plugin registers one hook — see [The Stride hook surface](#the-stride-hook-surface) below. That hook records loop state only; **it never executes a `.stride.md` section.** Executing those remains the agent's job: it reads the file and runs each command via shell.
+**Codex CLI does have a hook system** (stable since rust-v0.124.0), and this plugin registers one hook — see [The Stride hook surface](#the-stride-hook-surface) below. That hook records loop state and downloads a claimed task's attachments; **it never executes a `.stride.md` section.** Executing those remains the agent's job: it reads the file and runs each command via shell.
 
 ### The Stride hook surface
 
@@ -252,7 +252,7 @@ running `hooks/stride-stop-gate.sh`. Codex discovers a plugin-bundled
 
 #### The recorder — `stride-hook.sh`
 
-It does exactly one thing, and deliberately nothing else:
+It does these things, and deliberately nothing else:
 
 - After a **successful** `PATCH /api/tasks/:id/complete`, it writes
   `.stride/.loop-state.json` with four keys — `identifier`, `needs_review`
@@ -260,6 +260,18 @@ It does exactly one thing, and deliberately nothing else:
   (ISO-8601 UTC) and `session_id`.
 - After **any** claim — successful, failed, or against an empty queue — it
   removes that file.
+- After a **successful** claim whose own response it can parse, it downloads
+  each file the task lists in `data.attachments` into
+  `.stride/attachments/<IDENTIFIER>/`, writes `manifest.json` there last (one
+  entry per attachment, with its `status` and `reason`), and writes
+  `.stride/attachments/.gitignore` containing `*` so no attachment is ever
+  committed. Files over 25 MiB, past 20 files or past 100 MiB in total are
+  skipped, and the whole download has a 30-second budget inside the hook's
+  60-second timeout. The API URL and the production `API Token` come from
+  `.stride_auth.md` only; the token goes to curl on stdin, never in a command
+  line, and only to that URL. A download problem is recorded in the manifest
+  and one stderr line, and never changes the claim's outcome. The contract is
+  `stride/docs/porting-attachments.md`.
 
 The record is written by the hook rather than by the agent on purpose: an
 agent-written marker is exactly as skippable as the instruction it replaces,
@@ -267,8 +279,8 @@ and this file is meant to be evidence the agent cannot forget to leave.
 
 It never writes to stdout, always exits 0, and never fails a completion
 because the record could not be written — the record is a gate input, not a
-correctness dependency. It makes no network calls, executes no `.stride.md`
-section, and reads the API response only from the hook event for the call
+correctness dependency. Its only network call is that attachment download. It
+executes no `.stride.md` section, and reads the API response only from the hook event for the call
 being hooked, never from `.stride/.last-api-response.json` (that file survives
 across calls, so a truncated or 422 response would otherwise inherit the
 previous claim's payload and record a completion that never happened).
