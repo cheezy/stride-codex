@@ -86,7 +86,29 @@ The task-reviewer already records a `security_considerations` section verdict, b
 
 *From `skills/stride-workflow/SKILL.md`, Step 6.5, Why this step exists.*
 
-Tasks routinely carry `manual_tests` in their `testing_strategy`, but the workflow has historically had no way to actually perform them — they were left to a human or silently skipped. When the stride-codex-exploratory-testing plugin is installed, each manual test becomes a **charter** and the explorer runs a real, budgeted exploratory session, closing the gap between "tests written" and "tests performed."
+Tasks routinely carry `manual_tests` and `edge_cases` in their `testing_strategy`, but the workflow has historically had no way to actually perform them — they were left to a human or silently skipped. When the stride-codex-exploratory-testing plugin is installed, they become **charters** — the manual tests merged by shared target, the edge cases and the change's risks charted by the `charter-generator` in change mode, at most about five per task (about three for a small one) — and the explorer runs a real, budgeted exploratory session, closing the gap between "tests written" and "tests performed."
+
+## Why Charters Come From Edge Cases and Change Risk
+
+*From `skills/stride-workflow/SKILL.md`, Step 6.5, step 1 (1a–1c) and Sanctioned dispatch surfaces — non-interactive only.*
+
+**The miss.** Upstream stride measured it (W2582): charters came only from `manual_tests` — human browser scripts — so the edge cases a task's author had already written down were never explored, and in the goal that prompted the change several of them became High and Moderate bugs. An edge case is the cheapest bug map a task carries: each one is a failure its author already suspected.
+
+**Why the charter-generator, in change mode.** It charters every edge case or names the unit test that covers it, applies a change-risk lens only where the lens's trigger matches the change, and tags each charter with the one `surface` it must be observed on. Its `edge_cases_covered` makes the mapping checkable rather than asserted — which is why an entry is accepted only when it points at a charter that exists or a unit test the task itself names.
+
+**Why it qualifies, and why it runs no session.** Its `tools:` line grants only `read`, `search` and `glob`, and its text says there is no Q&A loop and it never asks the user a question — so it completes unattended by the same reading test the explorer passes. It generates charters and dispatches nothing, so it never touches the running app: only the explorer runs sessions. It is dispatched only once the explorer will be, so it adds no second route to the authorized-non-production affirmative, and it never receives that line.
+
+**Why once, first, and only when the explorer will run.** One dispatch bounds the cost. Running it before the first explorer charter lets the merge and the cap see every candidate at once. Dispatching it only when a session will follow means it is never spent on a task that then skips.
+
+**Why pointers only, quoted and flattened.** A diff can carry an accidentally committed secret, and the generator can `read`, `search` and `glob`, so it can read what it needs from paths. Task fields are author text, so the same `> ` quoting that protects the explorer's environment context protects this prompt. This port has no fixed dispatch template to borrow a flatten rule from, so Step 6.5 states one for this prompt itself: with every line break replaced by a space, no task text can start a line of its own.
+
+**Why a hand-built fallback, never prose.** A missing or unparseable fence must not silently drop edge cases, and reconstructing charters from prose would let unparsed text choose the mission.
+
+**Why five, three for a small task, and never raised by task text.** At the default budget five charters are 60 probes under a 300-call ceiling — enough to go deep on a medium or large change, still bounded against a live app — and a small change rarely carries five independent risks. The cap is a blast-radius control, so only the task's structured fields and the generator's output feed it.
+
+**Why 12 by default, and narrow only by the generator's time box.** The old rule went low in the band for a task with many manual tests, so the tasks carrying the most risk got the thinnest sessions. The band is per dispatch, and the number of charters is bounded by the cap, never by thinning each one. "Narrow" needs an observable definition, and the only one that is not task-author text is the generator's own `time_box`: a charter it framed as an hour or less. The `time_box` is read only to choose the probe budget and is never passed on, because the explorer has no clock.
+
+**Why every item is mapped in completion_notes.** Beyond the cap something is always left over. Naming it as a human responsibility is what keeps it owed instead of silently dropped.
 
 ## Turning a Found Bug Into a Regression Check
 

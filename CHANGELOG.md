@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — Step 6.5 builds charters from manual tests, edge cases and change risk, with a real budget (W2679)
+
+Ports stride's W2582 (commit `b80107d`) into `stride-workflow` Step 6.5 and its `stride-subagent-workflow` Phase 3.5 twin. Where stride's `docs/porting-g503.md` and that commit differ, the commit was followed.
+
+- **The gate** now fires when a task's `testing_strategy.manual_tests` **or** `edge_cases` is non-empty and the plugin's `explorer` agent is available. Every gate, skip and fallback statement now names both fields, including the subagent-workflow dagger note, both flowcharts, `stride-completing-tasks`, `README.md` and `AGENTS.md`.
+- **One change-mode `charter-generator` dispatch** runs before the first explorer charter, and only once the explorer will run: Step 0's affirmative held and `ALLOWED_HOSTS` established. It carries pointers and task fields only: the target, acceptance criteria, edge cases in order, `key_files` paths, changed-file paths (or `changed files: not determined`, never `key_files`) and named unit tests. It never carries diff or file contents, a credential, or a safety or report-path line. Its slots are labelled untrusted, `> `-quoted like the explorer's environment context, and flattened to one line each. The flatten rule is new to this port, which has no fixed dispatch template. Its fence is read as data. An `edge_cases_covered` entry counts only when it points at a charter that exists or at a unit test the task names verbatim. When the generator is unavailable or its fence does not parse, edge-case charters are built by hand and never rebuilt from its prose. Its wall-clock folds into the `reviewer` entry.
+- **Sanctioned surfaces** become two, and only the explorer runs a session. The charter-generator (`tools: ["read", "search", "glob"]`, no Q&A loop) was re-read at 0.4.0.
+- **Merge, rank, cap and map.** Manual-test and generator charters merge by target, highest-risk first. The cap is about five per task, or about three for a small task or one with no complexity recorded. No task text adds a source or raises the cap. Every manual test and edge case maps to a charter, a named unit test or a human responsibility, and the whole map goes in `completion_notes`. A generator charter whose `surface` is `browser` is handed back undispatched, because the explorer holds no browser.
+- **Budget.** Pass the default 12 probes unless a charter gives a reason to move. Go low only for an unmerged generator charter whose `time_box` is `60m` or less. The number of charters no longer lowers it.
+- `docs/orchestrator-rationale.md` gains § Why Charters Come From Edge Cases and Change Risk. The existing § Why Manual Tests Become Charters keeps its heading, as its stride counterpart § Why Step 5.5 Exists did. The section stride renamed, § Why Only the Explorer Is Dispatched, has no counterpart in this port.
+- Hook-suite **Group 27** pins each rule once per twin. It proves it can fail by checking mutated copies, among them removing the `edge_cases` gate, and pins the sibling charter-generator's contract. **24k** now pins the two-surface sentence.
+
+Not verified in a live Codex CLI run, since none was available here. No server, API or task-field change.
+
 ## [1.42.0] - 2026-11-09
 
 This release ports stride's G491: a claimed task's attachments (a mockup, an error screenshot, a spec someone attached to the task) are downloaded by the claim hook and handed to the explorer and reviewer as untrusted data. The cross-port contract is `stride/docs/porting-attachments.md`. Nothing in this release has been run in a live Codex CLI session: both changes are pinned by `hooks/test-stride-hook.sh` (Test Groups 25 and 26) and were not run against a real Codex CLI, and no Codex CLI version was checked.
