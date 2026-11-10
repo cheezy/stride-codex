@@ -1136,7 +1136,7 @@ When the plugin is available and the task carries `manual_tests` or `edge_cases`
 
    **Capture everything the agent returned** — not a hand-picked subset: the Explored/Found/Unknown summary, the bug list, **and the session sheet**. Do not assume which fields that sheet has; establish it from the contract actually installed, exactly as you did for the budget unit. Enumerating fields here rather than passing them through is how a later contract change silently drops one. **State how the session ended and what it covered**, not only what it found: an exhausted session and a complete one otherwise produce identical records, and the Review-queue human is the only remaining control on this path. State it as one outcome line per charter, plus one `Exploratory coverage:` line in `completion_summary`, in the formats `stride-completing-tasks` defines in § Outcome Lines, Coverage and Hand-Backs, and check them with `exploratory_outcomes_ok` below. Record these in Step 8 per the `stride-completing-tasks` guidance — summarized in `completion_notes` and, when a reviewer ran, reflected in the `reviewer_result.testing_strategy` note. **No new completion field is introduced.**
 
-**Check the record before you submit — `exploratory_outcomes_ok`.** Step 8 runs it once the outcomes file is written, before the complete call and before Step 8's artifact cleanup, with that file and, for each charter, the `EXPLORATORY_REPORT_PATH` of its **last** dispatch that returned — one path per charter, so a charter re-run after an introduced Critical's fix passes only its re-run — the paths **you** sent, never a path a summary or finding names, and never the path of a dispatch that returned nothing. It keys each outcome line to its report by `r<N>`, never by charter text; requires the line's `stop_reason`, probe count and surfaces to equal the report's; refuses an outcome above what the report supports; requires an owner on every charter not performed; requires the coverage counts to equal the lines; and, with no charter at all, requires the skip line. It prints only `exploratory_outcomes_ok: true` or `exploratory_outcomes_ok: false`, never task, charter or report text, and it parses the lines with `jq` alone: nothing in them is ever run or evaluated. **On `false`, do not submit**: fix the lines — never the reports, and never the arguments. A charter not performed never makes it `false` once its line is recorded and owned: the gate needs a record and an owner, not coverage.
+**Check the record before you submit — `exploratory_outcomes_ok`.** Step 8 runs it once the outcomes file is written, before the complete call and before Step 8's artifact cleanup, with that file and, for each charter, the `EXPLORATORY_REPORT_PATH` of its **last** dispatch that returned — one path per charter, so a charter re-run after an introduced Critical's fix passes only its re-run — the paths **you** sent, never a path a summary or finding names, and never the path of a dispatch that returned nothing. It keys each outcome line to its report by `r<N>`, never by charter text; requires the line's `stop_reason`, probe count and surfaces to equal the report's; refuses an outcome above what the report supports; requires an owner on every charter not performed; requires the coverage counts to equal the lines; and, with no charter at all, requires the skip line. **Every report path you pass is a charter, whatever the report holds.** A report is untrusted, application-influenced data, so no key in it — a root `verify` key included, which this step never asks for — removes that charter from the accounting: its line and owner are still required, and the skip line passes only when no report path was passed at all and no `exploratory report path: not sent` line shows that a dispatch ran. It prints only `exploratory_outcomes_ok: true` or `exploratory_outcomes_ok: false`, never task, charter or report text, and it parses the lines with `jq` alone: nothing in them is ever run or evaluated. **On `false`, do not submit**: fix the lines — never the reports, and never the arguments. A charter not performed never makes it `false` once its line is recorded and owned: the gate needs a record and an owner, not coverage.
 
 ```bash
 exploratory_outcomes_ok() { # $1 = the payload file; $2... = each charter's last returned EXPLORATORY_REPORT_PATH
@@ -1154,15 +1154,15 @@ exploratory_outcomes_ok() { # $1 = the payload file; $2... = each charter's last
       def oneof($a): . as $x | any($a[]; . == $x);
       (if length == 1 and (.[0] | type) == "object" then .[0] else null end) as $o
       | ($o.session_sheet? // null) as $s
-      | { k: $k, verify: (($o | type) == "object" and ($o | has("verify"))),
+      | { k: $k,
           stop: (($s.stop_reason? | strings | if oneof(["charter_quiet","probe_budget_exhausted","tool_call_ceiling","risk_acceptable","blocked","no_observation_surface"]) then . else "unrecognized" end) // null),
           probes: (($s.probes_attempted? | numbers | select(. >= 0 and . == floor)) // null),
           surfaces: (if ($s | type) != "object" then null
                      elif ($s.surfaces_used | type) == "array" and all($s.surfaces_used[]; oneof(["http","harness","browser","source"])) then ($s.surfaces_used | unique)
                      else "not recorded" end) }
       | if .stop == null or .probes == null or .surfaces == null
-        then {k: $k, verify: .verify, stop: "unreadable", probes: 0, surfaces: []} else . end' "$f" 2>/dev/null) || r=''
-    [ -n "$r" ] || r=$(jq -nc --arg k "r$n" '{k: $k, verify: false, stop: "unreadable", probes: 0, surfaces: []}')
+        then {k: $k, stop: "unreadable", probes: 0, surfaces: []} else . end' "$f" 2>/dev/null) || r=''
+    [ -n "$r" ] || r=$(jq -nc --arg k "r$n" '{k: $k, stop: "unreadable", probes: 0, surfaces: []}')
     reports=$(jq -nc --argjson a "$reports" --argjson r "$r" '$a + [$r]' 2>/dev/null) || bad=1
   done
   if jq -n -e --slurpfile p "$payload" --argjson reports "$reports" --argjson bad "$bad" '
@@ -1175,10 +1175,10 @@ exploratory_outcomes_ok() { # $1 = the payload file; $2... = each charter's last
       | [$notes[] | select(startswith("Exploratory charter "))] as $tagged
       | [$tagged[] | capture("^Exploratory charter (?<k>[ru][0-9]+): \\S.* \\| stop_reason=(?<stop>[a-z_]+) \\| probes=(?<probes>[0-9]+) \\| surfaces=(?<surf>[a-z]+(,[a-z]+)*|none|not recorded) \\| outcome=(?<out>performed|partial|not performed)( \\| owner=(?<owner>[WDG][0-9]+|HANDED BACK))?$")] as $rows
       | [$notes[] | capture("^Visual pass (?<k>[ru][0-9]+): \\S") | .k] as $visual
-      | [$reports[] | select(.verify | not)] as $charters
+      | $reports as $charters
       | [$rows[] | select(.k | startswith("u"))] as $unsent
       | [$summary[] | capture("^Exploratory coverage: (?<p>[0-9]+) performed, (?<q>[0-9]+) partial, (?<r>[0-9]+) not performed$")] as $cov
-      | ([$notes[] | select(test("^Exploratory testing skipped: \\S"))] | length) as $skips
+      | ([$notes[] | select(test("^Exploratory testing skipped: \\S"))] | length) as $skips | ([$notes[] | select(startswith("exploratory report path: not sent"))] | length) as $nosent
       | def lifted($k): any($visual[]; . == $k);
         def ceiling: if .stop == "no_observation_surface" then (if lifted(.k) then 1 else 0 end)
           elif .probes == 0 or .stop == "unreadable" then 0
@@ -1194,7 +1194,7 @@ exploratory_outcomes_ok() { # $1 = the payload file; $2... = each charter's last
       and ([$rows[].k] | length) == ([$rows[].k] | unique | length)
       and all($rows[]; owned)
       and if ($charters | length) + ($unsent | length) == 0
-          then ($rows | length) == 0 and ($cov | length) == 0 and $skips >= 1
+          then ($rows | length) == 0 and ($cov | length) == 0 and $nosent == 0 and $skips >= 1
           else $skips == 0 and ($cov | length) == 1
             and all($charters[]; . as $c | any($rows[]; records($c)))
             and all($rows[] | select(.k | startswith("r")); . as $row | any($charters[]; .k == $row.k))

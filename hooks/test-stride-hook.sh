@@ -6285,8 +6285,21 @@ HANDED BACK: <r<N> | u<k> | -> <what is left for a human to do, in your own word
 Visual pass <r<N> | u<k>>: <what the main-loop visual pass observed>
 Exploratory coverage: <p> performed, <q> partial, <r> not performed
 Exploratory testing skipped: <why Step 6.5 did not fire>'
-# cksum of the checker function as stride ships it (fe5de2e)
-G29_FN_SUM='4029618644 5171'
+# cksum of the checker function as this port ships it: stride's (fe5de2e)
+# with D407's six edits (see g29_d407)
+G29_FN_SUM='3714869502 5161'
+# g29_d407: stdin, upstream's checker -> stdout, that checker with exactly the
+# six D407 edits: the verify field gone from the three report objects, the
+# select(.verify | not) filter replaced by $reports itself, and the skip
+# branch refusing a record that holds an `exploratory report path: not sent`
+# line (counted as $nosent; pathless dispatches exist in this port only)
+g29_d407() {
+  sed -e 's/ verify: ((\$o | type) == "object" and (\$o | has("verify"))),$//' \
+      -e 's/verify: \.verify, //' -e 's/verify: false, //' \
+      -e 's/\[\$reports\[\] | select(\.verify | not)\] as \$charters/$reports as $charters/' \
+      -e 's/| length) as \$skips$/| length) as $skips | ([$notes[] | select(startswith("exploratory report path: not sent"))] | length) as $nosent/' \
+      -e 's/and (\$cov | length) == 0 and \$skips >= 1$/and ($cov | length) == 0 and $nosent == 0 and $skips >= 1/'
+}
 
 g29_once() {
   [ "$(g27_count "$2" "$3")" = "1" ] || G29_FAILS="$G29_FAILS $1"
@@ -6442,7 +6455,7 @@ if [ -f "$G29_WF" ] && [ -f "$G29_SW" ] && [ -f "$G29_CT" ] && [ -f "$G29_DOC" ]
   g29_ok "29a: each outcome-line prefix matches upstream byte for byte, in completion_notes but for coverage" p_
   g29_ok "29b: completion_summary carries exactly one Exploratory coverage: line" c_
   g29_ok "29c: the Exploratory testing skipped reason line is documented and replaces 'record nothing extra'" s_
-  g29_ok "29d: exploratory_outcomes_ok is defined in Step 6.5, byte-identical, prints only a boolean" k_
+  g29_ok "29d: exploratory_outcomes_ok is defined in Step 6.5, pinned by its checksum, prints only a boolean" k_
   g29_ok "29e: Step 8 runs exploratory_outcomes_ok before the complete call and sends what it checked" g_
   g29_ok "29f: the hard gate carries the outcome box after the cosmetic box" b_
   g29_ok "29g: Phase 3.5 mirrors the check before the complete call" m_
@@ -6476,8 +6489,8 @@ if [ -f "$G29_WF" ] && [ -f "$G29_SW" ] && [ -f "$G29_CT" ] && [ -f "$G29_DOC" ]
       "$(printf '%s\n' "$G29_UB" | sed 's/<.*//')" "$(printf '%s\n' "$G29_CB" | sed 's/<.*//')"
     assert_eq "29k2: the whole block is upstream's but for the step number" \
       "$(printf '%s\n' "$G29_UB" | sed 's/Step 5\.5/Step 6.5/')" "$G29_CB"
-    assert_eq "29k3: the checker function is byte-identical to upstream's" \
-      "$(g29_fn "$G29_UOET" | cksum)" "$(g29_fn "$G29_WF" | cksum)"
+    assert_eq "29k3: the checker function is upstream's but for D407's six edits" \
+      "$(g29_fn "$G29_UOET" | g29_d407 | cksum)" "$(g29_fn "$G29_WF" | cksum)"
   else
     echo "  SKIP: 29k: stride not found at $G29_UP -- the cross-repo compare runs only when the upstream repo is present"
   fi
@@ -8816,6 +8829,291 @@ $G35_SIB"
   assert_eq "35z: the break-it cases left the real changelog untouched" "$G35_SUM_BEFORE" "$(cksum < "$G35_CL")"
 else
   echo "  SKIP: Test Group 35 (the changelog is missing)"
+fi
+
+# ============================================================================
+# Test Group 36: D407 -- no report key exempts a report from
+# exploratory_outcomes_ok
+# ============================================================================
+# The checker skipped every passed report that carried a root `verify` key,
+# a filter ported from upstream, where a verify-mode re-check writes one. This
+# port never sends EXPLORATORY_MODE, so the key can only come from a steered
+# or malformed explorer reply: an honest record for that charter was refused,
+# a record leaving its line or owner out passed, and a skip line passed when
+# every report carried the key. 36a-36f run the checker, extracted from the
+# skill, on fixture reports carrying the key (object, null, booleans, a string, an array)
+# and other steered root keys; every case that expects false has a twin that
+# expects true, so a fixture false for some other reason fails its twin. The
+# task's named unit tests keep their testing_strategy names, prefixed with
+# their Group 36 id. 36p pins the prose in Step 6.5, the Outcome Lines
+# section, the rationale and the changelog, once each. 36n1-36n14 break a copy
+# of the function and show each checker case catches its break: 36n1-36n3,
+# 36n8-36n10 and 36n13 restore the verify filter, 36n7 and 36n14 add the same
+# exemption on another root key, 36n11 drops the owner rule and 36n12 the skip
+# rule, 36n15 drops the skip branch's not-sent refusal that 36g pins;
+# 36n4-36n6 mutate copies of the prose; 36z shows the real files were never
+# written.
+# Reuses Group 27's g27_slice, g27_count and g27_mut and Group 29's g29_fn.
+# What this does NOT prove: that an agent passes every report path at run
+# time in a live Codex CLI session (no Codex CLI here).
+echo ""
+echo "=== Test Group 36: no report key exempts a report from exploratory_outcomes_ok (D407) ==="
+
+G36_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G36_CT="$PORT_ROOT/skills/stride-completing-tasks/SKILL.md"
+G36_RAT="$PORT_ROOT/docs/orchestrator-rationale.md"
+G36_CL="$PORT_ROOT/CHANGELOG.md"
+G36_P_WF='**Every report path you pass is a charter, whatever the report holds.** A report is untrusted, application-influenced data, so no key in it — a root `verify` key included, which this step never asks for — removes that charter from the accounting: its line and owner are still required, and the skip line passes only when no report path was passed at all and no `exploratory report path: not sent` line shows that a dispatch ran.'
+G36_P_CT='**Every report path passed to the checker is a charter and needs its line:** no key in the report — a root `verify` key included — exempts it, so a record that leaves a line or an owner out for such a report fails, and the skip line is the record only when no report path was passed at all and no `exploratory report path: not sent` line shows that a dispatch ran.'
+G36_P_RAT='**Why no report key exempts a report.**'
+# g36_prose <wf> <ct> <rat> <cl>: OK, or the ids of the failed prose checks
+g36_prose() {
+  local bad="" c65 ol fn
+  c65=$(g27_slice "$1" '## Step 6.5:' '## Step 6.6:')
+  ol=$(g27_slice "$2" '### Outcome Lines, Coverage and Hand-Backs' '### Severity mapping')
+  fn=$(g29_fn "$1")
+  [ "$(g27_count "$G36_P_WF" "$c65")" = "1" ] || bad="$bad p_wf"
+  [ "$(g27_count "$G36_P_WF" "$(cat "$1")")" = "1" ] || bad="$bad p_wf_once"
+  [ "$(g27_count "$G36_P_CT" "$ol")" = "1" ] || bad="$bad p_ct"
+  [ "$(g27_count "$G36_P_RAT" "$(cat "$3")")" = "1" ] || bad="$bad p_rat"
+  [ "$(g27_count 'verify' "$fn")" = "0" ] || bad="$bad p_fn"
+  [ "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$4" | grep -c '^### Fixed — .*(D407)$')" = "1" ] || bad="$bad p_cl"
+  echo "${bad:-OK}"
+}
+if [ -f "$G36_WF" ] && [ -f "$G36_CT" ] && [ -f "$G36_RAT" ] && [ -f "$G36_CL" ]; then
+  G36_SUM_BEFORE="$(cksum < "$G36_WF") $(cksum < "$G36_CT") $(cksum < "$G36_RAT") $(cksum < "$G36_CL")"
+  assert_eq "36p: the no-exemption rule is stated once each in Step 6.5, Outcome Lines, the rationale and the changelog, and the checker reads no verify key" \
+    "OK" "$(g36_prose "$G36_WF" "$G36_CT" "$G36_RAT" "$G36_CL")"
+
+  # --- 36a-36f: the checker, extracted from the skill and run ---
+  if command -v jq >/dev/null 2>&1; then
+    G36_FN=$(g29_fn "$G36_WF")
+    eval "$G36_FN"
+    G36_D="$TMPDIR_TEST/g36"; G36_S="$G36_D/.stride"; mkdir -p "$G36_S"
+    G36_OK='exploratory_outcomes_ok: true'
+    G36_NO='exploratory_outcomes_ok: false'
+    g36_rep() { # $1=N $2=stop_reason $3=probes $4=surfaces JSON $5=extra root keys JSON object
+      local x=${5-}
+      [ -n "$x" ] || x='{}'
+      jq -nc --arg s "$2" --argjson p "$3" --argjson u "$4" --argjson x "$x" \
+        '{contract_version: "1.1", charter: "x", status: "completed", bugs: [],
+          session_sheet: {probe_budget: 12, probes_attempted: $p, stop_reason: $s, surfaces_used: $u}} + $x' \
+        > "$G36_S/.exploratory-D9-r$1.json"
+    }
+    g36_pay() { # $1=notes $2=summary
+      jq -n --arg n "$1" --arg s "$2" '{completion_notes: $n, completion_summary: $s}' > "$G36_D/p.json"
+    }
+    g36() { exploratory_outcomes_ok "$G36_D/p.json" "$@" 2>&1; }
+    G36_R1="$G36_S/.exploratory-D9-r1.json"; G36_R2="$G36_S/.exploratory-D9-r2.json"
+    G36_L1='Exploratory charter r1: the board filter by label | stop_reason=charter_quiet | probes=5 | surfaces=http | outcome=performed'
+    G36_L2='Exploratory charter r2: the CSV export of a filtered board | stop_reason=probe_budget_exhausted | probes=12 | surfaces=http,source | outcome=partial'
+    G36_L2N='Exploratory charter r2: the CSV export of a filtered board | stop_reason=blocked | probes=0 | surfaces=none | outcome=not performed'
+    G36_HB2='HANDED BACK: r2 run the CSV export manual test against a running app'
+    G36_SKIP='Exploratory testing skipped: x'
+    G36_COV2='Exploratory coverage: 1 performed, 1 partial, 0 not performed'
+    G36_COV1='Exploratory coverage: 1 performed, 0 partial, 0 not performed'
+    g36_rep 1 charter_quiet 5 '["http"]'
+    g36_rep 2 probe_budget_exhausted 12 '["http","source"]' '{"verify": {"result": "pass"}}'
+
+    g36_pay "Done.
+$G36_L1
+$G36_L2" "Did it.
+$G36_COV2"
+    assert_eq "36a: Group 29: an honest record with one verify-keyed report among normal ones prints true" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+    g36_pay "Done.
+$G36_L1" "Did it.
+$G36_COV1"
+    assert_eq "36b: Group 29: a record missing the line for a verify-keyed report prints false" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+    assert_eq "36b-twin: the same record with the verify-keyed report not passed prints true" "$G36_OK" "$(g36 "$G36_R1")"
+
+    # owner: a verify-keyed charter not performed still needs one
+    g36_rep 2 blocked 0 '[]' '{"verify": {"result": "not_verified"}}'
+    g36_pay "Done.
+$G36_L1
+$G36_L2N" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+    assert_eq "36b2: a verify-keyed charter not performed with no owner prints false" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+    g36_pay "Done.
+$G36_L1
+$G36_L2N | owner=HANDED BACK
+$G36_HB2" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+    assert_eq "36b2-twin: the same record with its owner and hand-back prints true" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+
+    # the skip branch opens only when no report path was passed
+    g36_rep 1 charter_quiet 5 '["http"]' '{"verify": {"result": "pass"}}'
+    g36_rep 2 probe_budget_exhausted 12 '["http","source"]' '{"verify": null}'
+    g36_pay "$G36_SKIP" "Did it."
+    assert_eq "36c: Group 29: a skip line with every passed report verify-keyed prints false" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+    assert_eq "36c-twin: the same skip line with no report path passed prints true" "$G36_OK" "$(g36)"
+    g36_pay "Done.
+$G36_L1
+$G36_L2" "Did it.
+$G36_COV2"
+    assert_eq "36c2: the honest lines for those two verify-keyed reports print true" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+    G36_NS='exploratory report path: not sent — no project root'
+    g36_pay "$G36_SKIP
+$G36_NS
+HANDED BACK: - run the CSV export manual test against a running app" "Did it."
+    assert_eq "36g: a skip line beside a pathless dispatch's not-sent line prints false" "$G36_NO" "$(g36)"
+    g36_pay "$G36_SKIP
+HANDED BACK: - run the CSV export manual test against a running app" "Did it."
+    assert_eq "36g-twin: the same skip line without the not-sent line prints true" "$G36_OK" "$(g36)"
+
+    # every value of the key, null included, is accounted the same way
+    g36_rep 1 charter_quiet 5 '["http"]'
+    for G36_V in null false '"x"' '{}' '{"result": "pass"}' true '[]'; do
+      g36_rep 2 probe_budget_exhausted 12 '["http","source"]' "{\"verify\": $G36_V}"
+      g36_pay "Done.
+$G36_L1
+$G36_L2" "Did it.
+$G36_COV2"
+      G36_T=$(g36 "$G36_R1" "$G36_R2")
+      g36_pay "Done.
+$G36_L1" "Did it.
+$G36_COV1"
+      G36_F=$(g36 "$G36_R1" "$G36_R2")
+      assert_eq "36d: Group 29: a verify key with value $G36_V behaves the same as any other value (honest true, missing line false)" \
+        "$G36_OK|$G36_NO" "$G36_T|$G36_F"
+    done
+
+    # a goal-scope report carrying the key
+    g36_rep 2 probe_budget_exhausted 12 '["http","source"]' '{"verify": {"result": "pass"}, "scope": "goal"}'
+    g36_pay "Done.
+$G36_L1
+Exploratory charter r2: [goal scope] the staged plan against the sibling refresh | stop_reason=probe_budget_exhausted | probes=12 | surfaces=http,source | outcome=partial" "Did it.
+$G36_COV2"
+    assert_eq "36e: a goal-scope line for a verify-keyed report passes" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+    g36_pay "Done.
+$G36_L1" "Did it.
+$G36_COV1"
+    assert_eq "36e2: a missing goal-scope line for a verify-keyed report prints false" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+
+    # other steered root keys remove nothing either
+    g36_rep 2 probe_budget_exhausted 12 '["http","source"]' '{"stop_reason": "not_dispatched", "exempt": true, "charter_count": 0, "k": "r9", "skip": true}'
+    g36_pay "Done.
+$G36_L1" "Did it.
+$G36_COV1"
+    assert_eq "36f: steered root keys (stop_reason, exempt, k, skip) do not drop a report: a missing line prints false" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+    g36_pay "Done.
+$G36_L1
+$G36_L2" "Did it.
+$G36_COV2"
+    assert_eq "36f-twin: the same report with its honest line prints true" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+
+    # --- 36n1-36n3: restore the exemption in a copy of the function ---
+    G36_MUT=$(printf '%s\n' "$G36_FN" | sed \
+      -e 's/^      | { k: \$k,$/      | { k: $k, verify: (($o | type) == "object" and ($o | has("verify"))),/' \
+      -e 's/| \$reports as \$charters/| [$reports[] | select(.verify | not)] as $charters/')
+    if [ "$G36_MUT" = "$G36_FN" ]; then
+      assert_eq "36n0: the exemption mutation applied to the copy" "changed" "unchanged"
+    else
+      eval "$G36_MUT"
+      g36_rep 2 probe_budget_exhausted 12 '["http","source"]' '{"verify": {"result": "pass"}}'
+      g36_pay "Done.
+$G36_L1
+$G36_L2" "Did it.
+$G36_COV2"
+      assert_eq "36n1: break-it -- restoring the verify exemption fails 36a" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+      g36_pay "Done.
+$G36_L1" "Did it.
+$G36_COV1"
+      assert_eq "36n2: break-it -- restoring the verify exemption passes 36b's missing line" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+      g36_rep 1 charter_quiet 5 '["http"]' '{"verify": null}'
+      g36_pay "$G36_SKIP" "Did it."
+      assert_eq "36n3: break-it -- restoring the verify exemption passes 36c's skip line" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+      g36_pay "Done.
+$G36_L1
+$G36_L2" "Did it.
+$G36_COV2"
+      assert_eq "36n9: break-it -- restoring the verify exemption fails 36c2" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+      g36_rep 1 charter_quiet 5 '["http"]'
+      g36_rep 2 blocked 0 '[]' '{"verify": {"result": "not_verified"}}'
+      g36_pay "Done.
+$G36_L1
+$G36_L2N | owner=HANDED BACK
+$G36_HB2" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+      assert_eq "36n10: break-it -- restoring the verify exemption fails 36b2-twin" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+      g36_rep 2 probe_budget_exhausted 12 '["http","source"]' '{"verify": {"result": "pass"}, "scope": "goal"}'
+      g36_pay "Done.
+$G36_L1
+Exploratory charter r2: [goal scope] the staged plan against the sibling refresh | stop_reason=probe_budget_exhausted | probes=12 | surfaces=http,source | outcome=partial" "Did it.
+$G36_COV2"
+      assert_eq "36n13: break-it -- restoring the verify exemption fails 36e" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+      g36_pay "Done.
+$G36_L1" "Did it.
+$G36_COV1"
+      assert_eq "36n8: break-it -- restoring the verify exemption passes 36e2's missing goal-scope line" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+      eval "$G36_FN"
+    fi
+
+    # --- 36n7, 36n11, 36n12, 36n14: the other breaks the remaining cases guard ---
+    # g36_meval <label> <sed expr>...: eval a mutated copy of the checker, or
+    # fail <label> when the expression changed nothing
+    g36_meval() {
+      local label=$1 m; shift
+      m=$(printf '%s\n' "$G36_FN" | sed "$@")
+      if [ "$m" = "$G36_FN" ]; then
+        assert_eq "$label (mutation applied to the copy)" "changed" "unchanged"; return 1
+      fi
+      eval "$m"
+    }
+    # A filter on a steered root key other than verify: 36f and its twin catch it
+    if g36_meval "36n7" -e 's/^      | { k: \$k,$/      | { k: $k, exempt: (($o | type) == "object" and ($o | has("exempt"))),/' \
+         -e 's/| \$reports as \$charters/| [$reports[] | select(.exempt | not)] as $charters/'; then
+      g36_rep 2 probe_budget_exhausted 12 '["http","source"]' '{"stop_reason": "not_dispatched", "exempt": true, "charter_count": 0, "k": "r9", "skip": true}'
+      g36_pay "Done.
+$G36_L1" "Did it.
+$G36_COV1"
+      assert_eq "36n7: break-it -- an exemption on a steered root key passes 36f's missing line" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+      g36_pay "Done.
+$G36_L1
+$G36_L2" "Did it.
+$G36_COV2"
+      assert_eq "36n14: break-it -- an exemption on a steered root key fails 36f-twin" "$G36_NO" "$(g36 "$G36_R1" "$G36_R2")"
+    fi
+    # Dropping the owner rule: 36b2 catches it
+    if g36_meval "36n11" -e 's/      and all(\$rows\[\]; owned)$/      and true/'; then
+      g36_rep 2 blocked 0 '[]' '{"verify": {"result": "not_verified"}}'
+      g36_pay "Done.
+$G36_L1
+$G36_L2N" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+      assert_eq "36n11: break-it -- dropping the owner rule passes 36b2" "$G36_OK" "$(g36 "$G36_R1" "$G36_R2")"
+    fi
+    # Requiring a second skip line: 36c-twin catches it
+    if g36_meval "36n12" -e 's/and \$skips >= 1$/and $skips >= 2/'; then
+      g36_pay "$G36_SKIP" "Did it."
+      assert_eq "36n12: break-it -- breaking the skip rule fails 36c-twin" "$G36_NO" "$(g36)"
+    fi
+    # Dropping the not-sent refusal from the skip branch: 36g catches it
+    if g36_meval "36n15" -e 's/ and \$nosent == 0 and \$skips >= 1$/ and $skips >= 1/'; then
+      g36_pay "$G36_SKIP
+$G36_NS" "Did it."
+      assert_eq "36n15: break-it -- dropping the not-sent refusal passes 36g" "$G36_OK" "$(g36)"
+    fi
+    eval "$G36_FN"
+  else
+    echo "  SKIP: 36a-36n15: jq is not installed"
+  fi
+
+  # --- 36n4-36n6: mutate copies of the prose ---
+  G36_TMP="$TMPDIR_TEST/g36m"; mkdir -p "$G36_TMP"
+  # g36_neg <label> <id> <which: wf|ct|rat> <old> <new>
+  g36_neg() {
+    local wf="$G36_WF" ct="$G36_CT" rat="$G36_RAT" src m="$G36_TMP/m.md"
+    case "$3" in ( wf ) src=$wf; wf=$m ;; ( ct ) src=$ct; ct=$m ;; ( rat ) src=$rat; rat=$m ;; esac
+    if [ "$(g27_mut "$src" "$m" "$4" "$5")" = "MISSING" ]; then
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+    else
+      assert_contains "$1" " $2 " " $(g36_prose "$wf" "$ct" "$rat" "$G36_CL") "
+    fi
+  }
+  g36_neg "36n4: break-it -- dropping the Step 6.5 rule fails 36p" p_wf wf "$G36_P_WF" ''
+  g36_neg "36n5: break-it -- dropping the Outcome Lines rule fails 36p" p_ct ct "$G36_P_CT" ''
+  g36_neg "36n6: break-it -- restoring the verify filter in the skill fails 36p" p_fn wf \
+    '| $reports as $charters' '| [$reports[] | select(.verify | not)] as $charters'
+  assert_eq "36z: the break-it cases left the real files untouched" "$G36_SUM_BEFORE" \
+    "$(cksum < "$G36_WF") $(cksum < "$G36_CT") $(cksum < "$G36_RAT") $(cksum < "$G36_CL")"
+else
+  echo "  SKIP: Test Group 36 (a skill, the rationale or the changelog is missing)"
 fi
 
 echo ""
