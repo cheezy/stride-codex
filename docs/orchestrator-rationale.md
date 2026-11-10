@@ -168,6 +168,20 @@ Tasks routinely carry `manual_tests` and `edge_cases` in their `testing_strategy
 
 **What it does not prove.** A goal whose last finisher is approved from Review gets no pass: that sibling is still `in_progress` while this task runs. Two children worked concurrently can each see the other open, and then neither runs it. Unrelated commits inside the window widen the goal's changed lines, which moves a finding toward the record but never toward the block. Nothing proves the charter-generator honours the cross-task request, which is why the orchestrator's own cap enforces the count. A last open child whose own Step 6.5 does not fire runs no pass and writes no line. None of this was run in a live Codex CLI session.
 
+## Why Task Authoring Writes Charters and Names Lenses
+
+*From `skills/stride-creating-tasks/SKILL.md` § testing_strategy, mirrored in `skills/stride-creating-goals/SKILL.md` § Task Nesting Rules, `agents/task-decomposer.md` Step 5 and `agents/task-enricher.md` Step 3, and pointed at from `skills/stride-enriching-tasks/SKILL.md` Step 3.*
+
+**Why the default moved upstream.** A Step 6.5 charter is built from the task's `manual_tests` and `edge_cases`, so it can be no better than what the author wrote. Upstream stride found it in one of its own goals (G489) and fixed it in W2587: the manual tests were browser scripts, and the charters built from them asked a session to look at colours and a network panel; an unattended session had nothing to judge and handed them back. Better chartering downstream cannot recover a risk the task never named, so the fix is where tasks are written: the two creation skills, the decomposer and enricher agents, and the enriching skill's walkthrough, which points at them.
+
+**Why a rule and not an advisory.** The advisory existed and was not followed: a task author copying a familiar shape writes a script. Stating the charter form as the default, with a before/after, changes the shape authors copy. It stays authoring guidance rather than validation because a terse entry is still better than none, and rejecting it would push authors to delete manual tests rather than improve them.
+
+**Why lenses by name.** The change-risk lenses are a short list of the questions those bugs answered wrongly — rights changed mid-session, a refresh nobody watched, a second surface the change never reached. The stride-codex-exploratory-testing `heuristics` skill is their only catalog; copying the text here would fork it, and the copies would drift the first time a lens is refined. A name is enough to send an author to the trigger, and the trigger is what decides whether the lens applies.
+
+**Why nine of the catalog's twelve.** The rule names the same nine lenses upstream's does. Leave No Trace, Telemetry Semantics and Response Hardening stay in the catalog and are not named at authoring time, so a task author is not asked to weigh them for every UI or HTTP change.
+
+**What it does not prove.** Nothing checks that a live decomposer or enricher writes charters; the hook suite pins the wording, not the behaviour. A terse or scripted manual test still validates, so a task created by another client can still arrive with one, and Step 6.5 still hands back a charter it cannot judge.
+
 ## Turning a Found Bug Into a Regression Check
 
 *From `skills/stride-workflow/SKILL.md`, Step 6.6.*

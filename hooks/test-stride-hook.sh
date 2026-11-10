@@ -7098,6 +7098,341 @@ else
   echo "  SKIP: Test Group 30 (a skill or the rationale doc is missing)"
 fi
 
+# ============================================================
+# Test Group 31: W2683 -- task authoring writes charter-ready manual tests and
+# lens-driven edge cases
+# ============================================================
+# Ported from stride's Group 74 (W2587, commit 1db0f72) in Codex voicing. Step
+# 6.5 builds its charters from a task's manual_tests and edge_cases, so it can
+# be no better than what the author wrote. The two creation skills, the
+# task-decomposer and the task-enricher now state, in the section where each
+# writes testing_strategy, that a manual test is a risk charter (a target plus
+# the information to discover, never a click script) and that a UI or HTTP
+# feature's edge_cases consider each of nine change-risk lenses whose trigger
+# matches, named and pointed at in stride-codex-exploratory-testing's
+# heuristics skill, never copied. Bash only: g31_check scopes each rule to its
+# file's own section (an exact heading line, since creating-tasks also has a
+# "### testing_strategy arrays" heading), and the 31m cases prove it can fail
+# by checking mutated COPIES under $TMPDIR_TEST -- the real files are never
+# written. 31k checks repo-wide that no lens's catalog text was copied, each
+# fragment first proven real in the sibling catalog when that checkout exists.
+# What this does NOT prove: that a live decomposer or enricher writes charters
+# in a Codex CLI run (no Codex CLI here), or that the API accepts the examples.
+echo ""
+echo "=== Test Group 31: charter-ready manual tests and lens-driven edge cases in task authoring (W2683) ==="
+
+G31_CT="$PORT_ROOT/skills/stride-creating-tasks/SKILL.md"
+G31_GO="$PORT_ROOT/skills/stride-creating-goals/SKILL.md"
+G31_DE="$PORT_ROOT/agents/task-decomposer.md"
+G31_EN="$PORT_ROOT/agents/task-enricher.md"
+G31_ES="$PORT_ROOT/skills/stride-enriching-tasks/SKILL.md"
+G31_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G31_DOC="$PORT_ROOT/docs/orchestrator-rationale.md"
+G31_RM="$PORT_ROOT/README.md"
+G31_AG="$PORT_ROOT/AGENTS.md"
+G31_CL="$PORT_ROOT/CHANGELOG.md"
+G31_ET="${STRIDE_CODEX_EXPLORATORY_TESTING_DIR:-$PORT_ROOT/../stride-codex-exploratory-testing}"
+G31_HEUR="$G31_ET/skills/heuristics/SKILL.md"
+G31_R1='**Charter-ready manual tests (the default).**'
+G31_R2='**Lens-driven edge cases (UI or HTTP features).**'
+G31_RAT='## Why Task Authoring Writes Charters and Names Lenses'
+G31_GENERAL='Change the Rights|Shadow Decision|Who Else Is Watching|Pull the Rug|Every Surface|Every Locale|Developer Guidebook'
+G31_WEB='Other Verbs|After the Headers'
+# Fragments of the Codex heuristics catalog: one from each of the nine lenses'
+# "When it applies" cells, then one from each "What to try" cell. None may
+# appear anywhere in stride-codex outside this test file.
+G31_FRAGS='roles, membership, plans, quotas or anything else that limits
+a rule that the server enforces and the client also shows or checks in advance
+a create, update or delete, or a real-time broadcast
+a child view, a nested route, or a delete or move of a parent entity
+how an entity is shown, validated or edited
+a message assembled from pieces, or a formatted number, date or size
+ships with module docs, a design doc or a changelog entry, or ought to have
+a route, a download, or a cached or streamed response
+a streamed, chunked or long-running response
+lower, give back or take away their role
+Find each spot where the client repeats a decision the server owns
+name every open view that shows the data it changes
+delete, archive or move the parent of a view that is still open
+List every place that shows or edits the entity
+Read each new or changed string in every locale the product ships
+Carry the **Guidebook Tour** over to the documents developers read
+Send the route ordinary requests with other methods and headers
+make the source of a streamed response fail once its status and headers have been sent'
+
+# g31_sec <file> <exact-start-line> <stop-prefix>: the section, flattened to one line
+g31_sec() {
+  awk -v s="$2" -v e="$3" 'p && index($0, e) == 1 { exit } $0 == s { p = 1 } p' "$1" | tr '\n' ' ' | tr -s ' '
+}
+# g31_para <file> <exact-start-line> <stop-prefix> <lead>: the first line of the
+# section that carries lead (one rule is one line)
+g31_para() {
+  G31_LEAD="$4" awk -v s="$2" -v e="$3" '
+    p && index($0, e) == 1 { exit }
+    $0 == s { p = 1 }
+    p && index($0, ENVIRON["G31_LEAD"]) > 0 { print; exit }' "$1"
+}
+# g31_at <needle> <haystack>: 1-based position of needle, 0 when absent
+g31_at() {
+  G31_N="$1" G31_H="$2" awk 'BEGIN { print index(ENVIRON["G31_H"], ENVIRON["G31_N"]) }'
+}
+# g31_has <id> <haystack> <needle>...: record id unless haystack holds every needle
+g31_has() {
+  local id="$1" h="$2" n
+  shift 2
+  if [ -z "$h" ]; then G31_FAILS="$G31_FAILS $id"; return; fi
+  for n in "$@"; do
+    case "$h" in *"$n"*) ;; *) G31_FAILS="$G31_FAILS $id"; return ;; esac
+  done
+}
+# g31_none <id> <needle> <file>: record id when needle occurs in file at all
+g31_none() {
+  if grep -qF -- "$2" "$3"; then G31_FAILS="$G31_FAILS $1"; fi
+}
+
+# g31_rules <key> <file> <start> <stop>: the checks every one of the four files shares
+g31_rules() {
+  local k="$1" f="$2" s="$3" e="$4" sec p1 p2 web n at frag
+  sec=$(g31_sec "$f" "$s" "$e")
+  [ -n "$sec" ] || G31_FAILS="$G31_FAILS scope_$k"
+  [ "$(grep -oF -- "$G31_R1" "$f" | wc -l | tr -d ' ') $(grep -oF -- "$G31_R2" "$f" | wc -l | tr -d ' ')" = "1 1" ] \
+    || G31_FAILS="$G31_FAILS d_$k"
+  p1=$(g31_para "$f" "$s" "$e" "$G31_R1")
+  p2=$(g31_para "$f" "$s" "$e" "$G31_R2")
+  g31_has "c_$k" "$p1" \
+    'a **target** plus the **information to discover**' \
+    '("Explore <target> to discover <information>")' \
+    'not a click script of steps, tools, browsers or modes' \
+    '**stride-codex-exploratory-testing plugin is available** in the session' \
+    'is run as an exploratory **charter** (see `stride-workflow` Step 6.5)'
+  g31_has "a_$k" "$p1" \
+    "the \`testing_strategy\` shape, the API's validation and the review_queue empty-pill gate are unchanged" \
+    '`manual_tests` entries are not longer-required' \
+    'terse entries still validate' \
+    'A task with no manual tests needs none' \
+    'a docs-only or backend-only task charters its own target'
+  # l_: every lens is named in bold. w_: the two web-only lenses sit after
+  # "for web/HTTP targets only" and the seven general ones before it.
+  local IFS_SAVE="$IFS"
+  IFS='|'
+  for n in $G31_GENERAL $G31_WEB; do
+    case "$p2" in *"**$n**"*) ;; *) G31_FAILS="$G31_FAILS l_$k" ; break ;; esac
+  done
+  web=$(g31_at 'for web/HTTP targets only' "$p2")
+  if [ -z "$p2" ] || [ "$web" = "0" ]; then
+    G31_FAILS="$G31_FAILS w_$k"
+  else
+    for n in $G31_GENERAL; do
+      at=$(g31_at "**$n**" "$p2")
+      if [ "$at" != "0" ] && [ "$at" -gt "$web" ]; then G31_FAILS="$G31_FAILS w_$k"; break; fi
+    done
+    for n in $G31_WEB; do
+      at=$(g31_at "**$n**" "$p2")
+      if [ "$at" != "0" ] && [ "$at" -lt "$web" ]; then G31_FAILS="$G31_FAILS w_$k"; break; fi
+    done
+  fi
+  IFS="$IFS_SAVE"
+  g31_has "p_$k" "$p2" \
+    '`stride-codex-exploratory-testing/skills/heuristics/SKILL.md`' \
+    'which is their only catalog: name them, never copy their text' \
+    'whose *When it applies* trigger matches' \
+    'Skip a lens whose trigger does not match' \
+    'a backend-only or docs-only task keeps its ordinary edge cases' \
+    'though Developer Guidebook may still match its docs drift'
+  g31_has "s_$k" "$p2" \
+    'mean testing your own system under authorization, on test data you created' \
+    'none of this changes who may authorize an exploratory target'
+  while IFS= read -r frag; do
+    [ -z "$frag" ] && continue
+    if grep -qF -- "$frag" "$f"; then G31_FAILS="$G31_FAILS k_$k"; break; fi
+  done <<< "$G31_FRAGS"
+  g31_none "v_$k" 'Step 5.5' "$f"
+  g31_none "v_$k" '`stride-exploratory-testing/skills' "$f"
+  g31_none "v_$k" 'plugin is installed' "$f"
+}
+
+# g31_check <ct> <go> <de> <en>: OK, or the sorted ids of the failed checks
+g31_check() {
+  local ct="$1" go="$2" de="$3" en="$4" sec
+  G31_FAILS=""
+  local CT_S='### testing_strategy' CT_E='### behaviour_test_matrix'
+  local GO_S='## Task Nesting Rules' GO_E='## Consuming Provided Context'
+  local DE_S='### Step 5: Full Specification per Task' DE_E='### Step 6: Output Assembly'
+  local EN_S='### Step 3: Analyze Testing → `testing_strategy`, optional `behaviour_test_matrix`' EN_E='### Step 4: Define Verification'
+  g31_rules ct "$ct" "$CT_S" "$CT_E"
+  g31_rules go "$go" "$GO_S" "$GO_E"
+  g31_rules de "$de" "$DE_S" "$DE_E"
+  g31_rules en "$en" "$EN_S" "$EN_E"
+
+  # e_: each file carries a before and after example.
+  sec=$(g31_sec "$ct" "$CT_S" "$CT_E")
+  g31_has e_ct "$sec" \
+    '- Before: `"Open the devtools Network tab and test in light and dark mode"`' \
+    '- After: `"Explore the theme toggle across pages and sessions to discover where the saved preference is ignored or goes stale"`' \
+    '- Edge case after a matching lens: `"Who Else Is Watching: a second open tab after the toggle still shows the old theme"`'
+  grep -qF '"Every Surface: modals, emails and error pages honour the theme"' "$ct" || G31_FAILS="$G31_FAILS e_ct"
+  sec=$(g31_sec "$go" "$GO_S" "$GO_E")
+  g31_has e_go "$sec" \
+    '> - Before: `"Open the devtools Network tab and test in light and dark mode"`' \
+    '> - After: `"Explore the theme toggle across pages and sessions to discover where the saved preference is ignored or goes stale"`' \
+    '> - Edge case after a matching lens: `"Who Else Is Watching: a second open tab after the toggle still shows the old theme"`'
+  g31_has t_go "$sec" '`stride-creating-tasks` carries the same two paragraphs'
+  g31_none v_go 'stride:stride-creating-tasks' "$go"
+  sec=$(g31_sec "$de" '## Example: Goal Decomposed into Tasks' '## Important Constraints')
+  g31_has e_de "$sec" \
+    "**Before/after for Task 1's manual test** (an example, not a rule; the rule is in Step 5 above)" \
+    'Before: `"manual_tests": ["Verify comment UI in both light and dark mode"]`' \
+    '"manual_tests": ["Explore the task comments section as a board member' \
+    '"Change the Rights: the commenter loses access' \
+    'yields a visual charter'
+  sec=$(g31_sec "$de" "$DE_S" "$DE_E")
+  g31_has e_de "$sec" 'turn each into a charter for the child whose change it covers'
+  g31_has t_de "$sec" \
+    'manual tests as charters and lens-driven edge cases (below)' \
+    "**Write every child's \`manual_tests\` and \`edge_cases\` by these two rules**, the same ones \`stride-creating-tasks\` states"
+  sec=$(g31_sec "$en" '### Mistake 2: Generic testing_strategy' '### Mistake 3')
+  g31_has e_en "$sec" \
+    '❌ "manual_tests": ["Open the devtools Network tab and click Next"]' \
+    '"Explore task-list pagination to discover pages that skip or repeat tasks and counts that go stale"' \
+    '"Who Else Is Watching: a task created elsewhere while page 2 is open"'
+  grep -qF '"Explore the paginated task list with 0, 1, 25 and 100+ tasks to discover' "$en" || G31_FAILS="$G31_FAILS e_en"
+  sec=$(g31_sec "$en" "$EN_S" "$EN_E")
+  g31_has e_en "$sec" 'is enriched by rewriting them as charters in the JSON you return'
+  g31_has t_en "$sec" \
+    '- `manual_tests`: risk charters for the behaviour a person should explore (the first rule below), never a click script' \
+    '- `edge_cases`: Null inputs, empty lists, concurrent access, permission boundaries; for a UI or HTTP feature, the change-risk lenses whose trigger matches (the second rule below)' \
+    '**Write `manual_tests` and `edge_cases` by these two rules**, the same ones `stride-creating-tasks` states'
+
+  # o_: the old advisory and the click-script examples are gone.
+  g31_none o_ct 'Charter-friendly `manual_tests` (advisory)' "$ct"
+  g31_none o_ct 'Visual verification of dark mode styles' "$ct"
+  g31_none o_ct '"Test in multiple browsers"' "$ct"
+  g31_none o_go 'Charter-friendly `manual_tests` (advisory)' "$go"
+  g31_none o_de '"manual_tests": ["Verify comment UI in both light and dark mode"],' "$de"
+  g31_none o_en 'Visual/UX verification if UI is involved' "$en"
+  g31_none o_en 'Visual verification of pagination controls' "$en"
+
+  if [ -z "$G31_FAILS" ]; then echo OK; else printf '%s\n' $G31_FAILS | sort -u | tr '\n' ' ' | sed 's/ $//'; fi
+}
+
+if [ -f "$G31_CT" ] && [ -f "$G31_GO" ] && [ -f "$G31_DE" ] && [ -f "$G31_EN" ]; then
+  G31_SUM_BEFORE="$(cksum < "$G31_CT") $(cksum < "$G31_GO") $(cksum < "$G31_DE") $(cksum < "$G31_EN")"
+  G31_REAL=$(g31_check "$G31_CT" "$G31_GO" "$G31_DE" "$G31_EN")
+  # g31_ok <label> <prefix>...: no failing id on the real files starts with a prefix
+  g31_ok() {
+    local label="$1" bad="" id p
+    shift
+    for id in $G31_REAL; do
+      case "$id" in scope_*) bad="$bad $id"; continue ;; esac
+      for p in "$@"; do
+        case "$id" in "$p"*) bad="$bad $id" ;; esac
+      done
+    done
+    assert_eq "$label" "" "$bad"
+  }
+  g31_ok "Group 31: each of the four files names Explore <target> to discover <information>" c_ d_
+  g31_ok "Group 31: each names all nine change-risk lenses" l_ w_
+  g31_ok "Group 31: each points at stride-codex-exploratory-testing/skills/heuristics/SKILL.md" p_
+  g31_ok "Group 31: no file copies a lens's When it applies text" k_
+  g31_ok "31a: the text says the testing_strategy shape and validation are unchanged" a_
+  g31_ok "31b: the rights and failure lenses keep the authorization sentence" s_
+  g31_ok "31c: each of the four files carries a before and after example" e_
+  g31_ok "31d: the old advisory and the click-script examples are gone" o_
+  g31_ok "31e: Codex voicing (Step 6.5, the Codex heuristics path, bare sibling names)" v_
+  g31_ok "31f: placement (decomposer table row, enricher bullets, lead sentences, goals closer)" t_
+  assert_eq "31u: every rule found in its section on the real files" "OK" "$G31_REAL"
+
+  # --- 31g: the enriching skill, rationale, README, AGENTS and CHANGELOG ---
+  assert_eq "31g: the enriching-tasks walkthrough points at both rules once and models a charter" "1 1 0" \
+    "$(grep -oF '**Write `manual_tests` and `edge_cases` by the two rules in `stride-creating-tasks` § testing_strategy:**' "$G31_ES" | wc -l | tr -d ' ') $(grep -oF '"Explore comment timestamps on old and new comments to discover' "$G31_ES" | wc -l | tr -d ' ') $(grep -cF 'Visual verification that timestamps appear and are readable in both light and dark mode' "$G31_ES" | tr -d ' ')"
+  assert_eq "31g: the rationale section exists once and stride-workflow points at it once" "1 1" \
+    "$(grep -cx -- "$G31_RAT" "$G31_DOC" | tr -d ' ') $(grep -oF '`docs/orchestrator-rationale.md` § Why Task Authoring Writes Charters and Names Lenses' "$G31_WF" | wc -l | tr -d ' ')"
+  assert_eq "31g: README and AGENTS each describe the rules once, and README no longer says the skills advise" "1 1 0" \
+    "$(grep -oF 'Since W2683,' "$G31_RM" | wc -l | tr -d ' ') $(grep -oF 'Since W2683,' "$G31_AG" | wc -l | tr -d ' ') $(grep -cF 'advise phrasing' "$G31_RM" | tr -d ' ')"
+  G31_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$G31_CL")
+  assert_eq "31g: CHANGELOG [Unreleased] carries one (W2683) entry, ahead of W2682" "1 yes" \
+    "$(printf '%s\n' "$G31_UNREL" | grep -c '^### Changed — .*(W2683)$' | tr -d ' ') $(printf '%s\n' "$G31_UNREL" | awk '/^### .*\(W2683\)$/{a=NR} /^### .*\(W2682\)$/{b=NR} END{print (a && b && a < b) ? "yes" : "no"}')"
+  G31_ENTRY=$(printf '%s\n' "$G31_UNREL" | awk '/^### Changed — .*\(W2683\)$/{f=1; next} f && /^### /{exit} f')
+  assert_eq "31g: the entry names what does not apply and the porting-doc differences once each" "1 1" \
+    "$(printf '%s\n' "$G31_ENTRY" | grep -c '^- \*\*Not applicable here\.\*\*' | tr -d ' ') $(printf '%s\n' "$G31_ENTRY" | grep -c '^- \*\*Porting-doc differences\.\*\*' | tr -d ' ')"
+
+  # --- 31k: no lens catalog text copied anywhere in stride-codex ---
+  [ -f "$G31_HEUR" ] || echo "  SKIP: 31k0 (stride-codex-exploratory-testing checkout not present)"
+  while IFS= read -r g31_frag; do
+    [ -z "$g31_frag" ] && continue
+    if [ -f "$G31_HEUR" ]; then
+      assert_eq "31k0: '$g31_frag' is real catalog text in the Codex heuristics skill" "1" \
+        "$(grep -cF -- "$g31_frag" "$G31_HEUR" | tr -d ' ')"
+    fi
+    assert_eq "31k: no lens catalog text copied into stride-codex -- '$g31_frag' appears nowhere" "" \
+      "$(grep -rlF --exclude='test-stride-hook.*' --exclude-dir=.git --exclude-dir=.stride -- "$g31_frag" "$PORT_ROOT" 2>/dev/null)"
+  done <<< "$G31_FRAGS"
+
+  # --- 31m: break-it on mutated COPIES of the four files ---
+  G31_TMP="$TMPDIR_TEST/g31m"; mkdir -p "$G31_TMP"
+  g31_neg() {
+    local a="$G31_CT" b="$G31_GO" c="$G31_DE" d="$G31_EN" r=""
+    rm -f "$G31_TMP"/*.md
+    case "$3" in
+      ct) r=$(g27_mut "$G31_CT" "$G31_TMP/ct.md" "$4" "$5"); a="$G31_TMP/ct.md" ;;
+      go) r=$(g27_mut "$G31_GO" "$G31_TMP/go.md" "$4" "$5"); b="$G31_TMP/go.md" ;;
+      de) r=$(g27_mut "$G31_DE" "$G31_TMP/de.md" "$4" "$5"); c="$G31_TMP/de.md" ;;
+      en) r=$(g27_mut "$G31_EN" "$G31_TMP/en.md" "$4" "$5"); d="$G31_TMP/en.md" ;;
+    esac
+    if [ "$r" = "MISSING" ]; then
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+      return
+    fi
+    assert_contains "$1" "$2" " $(g31_check "$a" "$b" "$c" "$d") "
+  }
+  g31_neg "Group 31: break-it check that removing a lens name from one file fails the group" " l_de " de \
+    '**Other Verbs** (other HTTP verbs) and ' ''
+  g31_neg "31m2: a creating-tasks copy that lets a click script stand fails the group" " c_ct " ct \
+    'not a click script of steps' 'or a short script of steps'
+  g31_neg "31m3: a creating-goals copy that makes terse entries invalid fails the group" " a_go " go \
+    'and terse entries still validate' 'and terse entries are rejected'
+  g31_neg "31m4: an enricher copy whose rules move out of Step 3 fails the group" " scope_en " en \
+    '### Step 3: Analyze Testing' '### Step 3a: Analyze Testing'
+  g31_neg "31m5: a creating-tasks copy that applies After the Headers to every target fails the group" " w_ct " ct \
+    'and **Developer Guidebook** (docs drift), plus, for web/HTTP targets only, **Other Verbs** (other HTTP verbs) and **After the Headers** (failure after the headers are sent)' \
+    '**Developer Guidebook** (docs drift) and **After the Headers** (failure after the headers are sent), plus, for web/HTTP targets only, **Other Verbs** (other HTTP verbs)'
+  g31_neg "31m6: an enricher copy that drops the authorization framing fails the group" " s_en " en \
+    'mean testing your own system under authorization' 'mean testing any system'
+  g31_neg "31m7: a creating-goals copy that copies the catalog instead of pointing at it fails the group" " p_go " go \
+    'never copy their text' 'copy their text here'
+  g31_neg "31m8: a decomposer copy that points at the Claude Code heuristics path fails the group" " p_de " de \
+    '`stride-codex-exploratory-testing/skills/heuristics/SKILL.md`' '`stride-exploratory-testing/skills/heuristics/SKILL.md`'
+  g31_neg "31m9: a decomposer copy with the charter lead-in twice fails the group" " d_de " de \
+    'The example leaves `behaviour_test_matrix` out to stay short.' 'The example leaves `behaviour_test_matrix` out to stay short. **Charter-ready manual tests (the default).**'
+  g31_neg "31m10: a creating-tasks copy that restores the old advisory fails the group" " o_ct " ct \
+    "$G31_R1" '**Charter-friendly `manual_tests` (advisory).**'
+  g31_neg "31m11: an enricher copy that pastes a lens's When it applies text fails the group" " k_en " en \
+    'never copy their text.' 'never copy their text. When a change touches roles, membership, plans, quotas or anything else that limits what a user may do.'
+  g31_neg "31m12: a decomposer copy that makes charters required fails the group" " a_de " de \
+    'the review_queue empty-pill gate are unchanged' 'the review_queue empty-pill gate now require charters'
+  g31_neg "31m13: an enricher copy that drops the click-script counter-example fails the group" " e_en " en \
+    '❌ "manual_tests": ["Open the devtools Network tab and click Next"]' '❌ "manual_tests": []'
+  g31_neg "31m14: a creating-goals copy that drops the before example fails the group" " e_go " go \
+    'Before: `"Open the devtools Network tab and test in light and dark mode"`' 'Before: (none)'
+  g31_neg "31m15: a decomposer copy voiced as Step 5.5 fails the group" " v_de " de \
+    '(see `stride-workflow` Step 6.5)' '(see `stride-workflow` Step 5.5)'
+  g31_neg "31m16: an enricher copy that restores the visual manual-test bullet fails the group" " o_en " en \
+    '`manual_tests`: risk charters for the behaviour a person should explore (the first rule below), never a click script' '`manual_tests`: Visual/UX verification if UI is involved'
+  g31_neg "31m17: a creating-goals copy that names the sibling with a stride: prefix fails the group" " v_go " go \
+    '`stride-creating-tasks` carries the same two paragraphs' '`stride:stride-creating-tasks` carries the same two paragraphs'
+  g31_neg "31m18: a decomposer copy whose table row drops the rules fails the group" " t_de " de \
+    'manual tests as charters and lens-driven edge cases (below)' 'see below'
+  g31_neg "31m19: a creating-tasks copy that drops the backend-only and docs-only carve-out fails the group" " p_ct " ct \
+    'a backend-only or docs-only task keeps its ordinary edge cases' 'every task applies every lens'
+  g31_neg "31m20: an enricher copy that drops the Developer Guidebook docs-drift clause fails the group" " p_en " en \
+    ', though Developer Guidebook may still match its docs drift' ''
+  rm -rf "$G31_TMP"
+  assert_eq "31z: the break-it cases left the real files untouched" "$G31_SUM_BEFORE" \
+    "$(cksum < "$G31_CT") $(cksum < "$G31_GO") $(cksum < "$G31_DE") $(cksum < "$G31_EN")"
+else
+  echo "  SKIP: Test Group 31 (a creation skill or agent is missing)"
+fi
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"

@@ -1013,6 +1013,8 @@ If either condition is false, **skip this step entirely and proceed to Step 7 wi
 
 `docs/orchestrator-rationale.md` § Why Manual Tests Become Charters.
 
+Why tasks arrive written as charters with lens-named edge cases: `docs/orchestrator-rationale.md` § Why Task Authoring Writes Charters and Names Lenses.
+
 ### Plugin-Availability Detection (Codex terms)
 
 Codex CLI has **no slash commands and no TOML** — so never detect the plugin by command or config file. Detect it the same way you detect any Codex capability: by its **sanctioned surface appearing in the session's available lists**:

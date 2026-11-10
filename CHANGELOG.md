@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — Task authoring writes charter-ready manual tests and lens-driven edge cases (W2683)
+
+Ports stride's W2587 (commit `1db0f72`) into `stride-creating-tasks`, `stride-creating-goals`, `agents/task-decomposer.md` and `agents/task-enricher.md`. Where `stride-exploratory-testing`'s `docs/porting-g503.md` and that commit differ, the commit was followed.
+
+- **Charter-ready manual tests are the default.** Both creation skills replace the optional *Charter-friendly `manual_tests`* advisory with a rule: each `manual_tests` entry is a risk charter ("Explore <target> to discover <information>"), not a click script of steps, tools, browsers or modes, since Step 6.5 runs each entry as an exploratory charter and a script becomes a visual charter that is handed back.
+- **Lens-driven edge cases.** For a UI or HTTP feature, `edge_cases` considers each change-risk lens whose *When it applies* trigger matches and names it: Change the Rights, Shadow Decision, Who Else Is Watching, Pull the Rug, Every Surface, Every Locale and Developer Guidebook, plus Other Verbs and After the Headers for web/HTTP targets only. The lenses are named and pointed at in `stride-codex-exploratory-testing/skills/heuristics/SKILL.md`, never copied; the rights and failure lenses mean testing your own system under authorization, on test data you created.
+- **Applied where tasks are written.** The decomposer's Step 5 (and its field table) and the enricher's Step 3 (and its two test-case bullets) carry the same two rules. Each of the four files has a before/after: the two skills beside the rules, the decomposer in its worked example's Task 1, the enricher in Mistake 2 and its Output Format example. The creating-tasks quick-reference example and `stride-enriching-tasks`'s worked example now model a charter, and that skill's Step 3 points at both rules.
+- **Nothing else moves.** The `testing_strategy` shape, the API's validation and the review_queue empty-pill gate are unchanged, manual tests are not longer-required, and terse entries still validate.
+- **Not applicable here.** Stride's `docs/task-decomposer-reference.md`, `docs/task-enricher-reference.md` and `docs/exploratory-testing-rationale.md` do not exist in stride-codex, so their hunks land in the two agents' own worked examples and in `docs/orchestrator-rationale.md`.
+- **Porting-doc differences.** The doc's W2587 section lists only the two creation skills and the two agents per edition; the commit also changes `stride-enriching-tasks`, both reference docs, the rationale and the README. It says the skills "require" charters; the commit states authoring guidance that changes no validation. Its lens note keeps "the twelve lens names" exact and says W2587's rule quotes them by name; the commit's rule names nine of the twelve (not Leave No Trace, Telemetry Semantics or Response Hardening), and so does this port. It also leaves out the web/HTTP-only scoping of Other Verbs and After the Headers and the authorization sentence.
+- `docs/orchestrator-rationale.md` gains § Why Task Authoring Writes Charters and Names Lenses, pointed at from `stride-workflow` Step 6.5. `README.md` and `AGENTS.md` describe the rules.
+- Hook-suite **Group 31** pins both rules once per file inside the section that writes `testing_strategy`, all nine lenses with the web-only two after "for web/HTTP targets only", the Codex heuristics path, the authorization and API-shape sentences and each file's before/after. It checks that no lens's catalog text was copied into this plugin, each fragment first proven real in the sibling catalog when that checkout is present, and proves it can fail on mutated copies, among them removing a lens name from one file; a cksum check shows the real files untouched.
+
+Not verified in a live Codex CLI run, since none was available here. No server, API or task-field change.
+
 ### Changed — Step 6.5 runs a goal-scope pass when the task is its goal's last open child (W2682)
 
 Ports stride's W2586 (commit `ec65ec1`) into `stride-workflow` Step 6.5 and its `stride-subagent-workflow` Phase 3.5 twin. Where `stride-exploratory-testing`'s `docs/porting-g503.md` and that commit differ, the commit was followed.
