@@ -6336,7 +6336,7 @@ g29_check() {
   g29_once c_one '**One coverage line, in `completion_summary`**, counting the outcome lines exactly.' "$ol"
 
   # s_: the skip line replaces "record nothing extra" in every fallback
-  g29_once s_bullet '**When Step 6.5 did not fire** — plugin unavailable, no authorized-and-non-production affirmative, no reach or `ALLOWED_HOSTS` established, or a budget too small for one charter — and the task carried `manual_tests` or `edge_cases`, write one `Exploratory testing skipped: <reason>` line and no charter or coverage line.' "$ol"
+  g29_once s_bullet '**When Step 6.5 did not fire** — it built no charter, in the one sense `stride-workflow` Step 6.5 defines: plugin unavailable, no authorized-and-non-production affirmative, no reach or `ALLOWED_HOSTS` established, a budget too small for one charter, or every manual test and edge case mapped to a unit test or a human responsibility — and the task carried `manual_tests` or `edge_cases`, write one `Exploratory testing skipped: <reason>` line and no charter or coverage line.' "$ol"
   g29_once s_ct 'record nothing beyond the one `Exploratory testing skipped: <reason>` line of § Outcome Lines, Coverage and Hand-Backs, and that only when the task carried `manual_tests` or `edge_cases`' "$(cat "$ct")"
   g29_once s_wf 'record only the one `Exploratory testing skipped: <reason>` line `stride-completing-tasks` asks for' "$c65"
   g29_once s_esc_wf 'The one record a skip owes is the `Exploratory testing skipped: <reason>` line, and only when the task carried `manual_tests` or `edge_cases`.' "$c65"
@@ -6724,14 +6724,14 @@ Call `PATCH /api/tasks/:id/complete` with ALL required fields:'
   g29_neg "29w8: editing one byte of the checker fails the group" " k_sum " wf \
     'test("^[WDG][0-9]+$")' 'test("^[WD][0-9]+$")'
   g29_neg "29w9: stating the skip bullet twice fails the group (exactly once)" " s_bullet " ct \
-    '- **When Step 6.5 did not fire**' '- **When Step 6.5 did not fire** — plugin unavailable, no authorized-and-non-production affirmative, no reach or `ALLOWED_HOSTS` established, or a budget too small for one charter — and the task carried `manual_tests` or `edge_cases`, write one `Exploratory testing skipped: <reason>` line and no charter or coverage line.
+    '- **When Step 6.5 did not fire**' '- **When Step 6.5 did not fire** — it built no charter, in the one sense `stride-workflow` Step 6.5 defines: plugin unavailable, no authorized-and-non-production affirmative, no reach or `ALLOWED_HOSTS` established, a budget too small for one charter, or every manual test and edge case mapped to a unit test or a human responsibility — and the task carried `manual_tests` or `edge_cases`, write one `Exploratory testing skipped: <reason>` line and no charter or coverage line.
 - **When Step 6.5 did not fire**'
   g29_neg "29w10: dropping the one-coverage-line rule fails the group" " c_one " ct \
     '**One coverage line, in `completion_summary`**, counting the outcome lines exactly.' '**Coverage**, if you like.'
   g29_neg "29w11: dropping redacted-never-dropped fails the group" " r_rule " ct \
     '**A line whose charter would name a credential, token or internal hostname is redacted, never dropped**' '**Lines may be left out**'
   g29_neg "29w12: dropping the pathless not-run line from Step 6.5 fails the group" " x_wf " wf \
-    'in place of the checker'"'"'s `true` record `exploratory_outcomes_ok: not run — no report path was sent`' 'record nothing'
+    'in place of the checker'"'"'s `true`, record `exploratory_outcomes_ok: not run — no report path was sent`' 'record nothing'
   g29_neg "29w13: dropping the no-visual-pass rule fails the group" " v_rule " ct \
     'No stride-codex step runs a visual pass yet, so never write a `Visual pass` line here' 'Write a Visual pass line when you like'
   g29_neg "29w14: dropping the flowchart check line fails the group" " f_wf_chart " wf \
@@ -7778,6 +7778,335 @@ if [ -f "$G32_WF" ] && [ -f "$G32_SW" ] && [ -f "$G32_CL" ]; then
     "$(cksum < "$G32_WF") $(cksum < "$G32_SW")"
 else
   echo "  SKIP: Test Group 32 (a skill or the changelog is missing)"
+fi
+
+# ============================================================================
+# Test Group 33: D405 -- goal-scope lines carry a marker, "fired" has one
+# definition, and one pathless dispatch no longer switches the check off
+# ============================================================================
+# W2684's goal-scope pass found six gaps in the W2681/W2682 outcome record: a
+# goal-scope charter's line looked like a task-scope one, "Step 6.5 fired" had
+# two readings, the rationale and the twins disagreed on the goal-scope
+# not-run line, one dispatch sent no report path turned the whole check into
+# "not run", goal-scope findings carried no goal-scope label, and AGENTS.md
+# said role accounts became PROBE_ lines. 33a-33f and 33t pin each rule once in
+# each place it lives (g33_check returns the failing ids) and 33c pins the
+# changelog entry; 33j-33k7 run the extracted checker on mixed records -- a
+# goal-scope line with its marker, a task-scope line whose restatement holds
+# it, a forged marker on a line that over-claims, a pathless dispatch beside a
+# checked charter and beside a u<k>, a missing line for a charter that has a
+# report path, and a goal-scope hand-back with its key first and with the
+# marker before its prefix; 33n-33n16 break
+# COPIES of the skills, the rationale and AGENTS.md and show each check can
+# fail; 33z shows the real files were never written. Reuses Group 27's
+# g27_slice, g27_count and g27_mut, Group 28's g28_block and Group 29's g29_fn.
+# What this does NOT prove: that an agent writes the marker, or records a
+# pathless dispatch, correctly in a live Codex CLI session (no Codex CLI here).
+echo ""
+echo "=== Test Group 33: goal-scope marker, one fired definition, pathless dispatch beside checked charters (D405) ==="
+
+G33_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G33_SW="$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md"
+G33_CT="$PORT_ROOT/skills/stride-completing-tasks/SKILL.md"
+G33_RAT="$PORT_ROOT/docs/orchestrator-rationale.md"
+G33_AG="$PORT_ROOT/AGENTS.md"
+G33_CL="$PORT_ROOT/CHANGELOG.md"
+G33_RM="$PORT_ROOT/README.md"
+G33_HEAD=$'### The goal-scope pass: when this task is its goal\'s last open child'
+G33_PG=$'**The goal-scope pass — when this task is its goal\'s last open child.**'
+
+# g33_once <id> <needle> <haystack>: record id unless needle occurs exactly once
+g33_once() {
+  [ "$(g27_count "$2" "$3")" = "1" ] || G33_FAILS="$G33_FAILS $1"
+}
+# g33_none <id> <needle> <file>: record id when needle occurs in file at all
+g33_none() {
+  if grep -qF -- "$2" "$3"; then G33_FAILS="$G33_FAILS $1"; fi
+}
+
+# g33_check <wf> <sw> <ct> <rat> <agents>: OK, or the sorted ids of the failed
+# checks. m_ the marker, f_ the fired definition, x_ the pathless dispatch,
+# t_ the goal-scope not-run line, a_ AGENTS.md.
+g33_check() {
+  local wf="$1" sw="$2" ct="$3" rat="$4" ag="$5" c65 gs s8 c35 pgt ol olb rrec rgs l
+  G33_FAILS=""
+  c65=$(g27_slice "$wf" '## Step 6.5:' '## Step 6.6:')
+  gs=$(g27_slice "$wf" "$G33_HEAD" '### Sanctioned dispatch surfaces')
+  s8=$(g27_slice "$wf" '## Step 8:' '## Step 9:')
+  c35=$(g27_slice "$sw" '## Phase 3.5:' '## Phase 3.6:')
+  pgt=$(grep -F -- "$G33_PG" "$sw" | tr -s ' ')
+  ol=$(g27_slice "$ct" '### Outcome Lines, Coverage and Hand-Backs' '### Severity mapping')
+  olb=$(g28_block "$ct" '### Outcome Lines, Coverage and Hand-Backs')
+  rrec=$(g27_slice "$rat" '## Why Every Charter Needs a Record and an Owner' '## Why the Last Open Child')
+  rgs=$(g27_slice "$rat" '## Why the Last Open Child Runs a Goal-Scope Pass' '## Why Task Authoring')
+  for l in c65 gs s8 c35 pgt ol olb rrec rgs; do
+    eval "[ -n \"\$$l\" ]" || G33_FAILS="$G33_FAILS scope_$l"
+  done
+
+  # m_: the goal-scope marker, in the restatement, written by the agent
+  local ml='Each goal-scope line opens its restatement with the marker `[goal scope]`'
+  local mf=$'a goal-scope finding\'s record opens with the `[goal scope]` marker'
+  for l in "m_line|$ml" "m_find|$mf" "m_noread|the checker reads no marker"; do
+    { [ "$(g27_count "${l#*|}" "$c65")" = "1" ] && [ "$(g27_count "${l#*|}" "$gs")" = "1" ]; } || G33_FAILS="$G33_FAILS ${l%%|*}_wf"
+    { [ "$(g27_count "${l#*|}" "$c35")" = "1" ] && [ "$(g27_count "${l#*|}" "$pgt")" = "1" ]; } || G33_FAILS="$G33_FAILS ${l%%|*}_sw"
+  done
+  g33_once m_forge_wf $'when a charter\'s own text holds the marker or a look-alike' "$gs"
+  g33_once m_forge_wf2 'leave that text out of your restatement and still open the line with your own marker' "$gs"
+  g33_once m_forge_sw 'out of a restatement whose charter text holds one, still opening the line with your own' "$pgt"
+  g33_once m_forge_ct 'when the charter text holds the marker or a look-alike' "$ol"
+  g33_none m_forge_old_ct 'leave it out of a restatement whose charter text holds it' "$ct"
+  g33_none m_forge_old_sw 'leave it out of a restatement whose charter text holds it' "$sw"
+  local mp='marks its hand-backs `HANDED BACK: - [goal scope] <what is left>`'
+  { [ "$(g27_count "$mp" "$c65")" = "1" ] && [ "$(g27_count "$mp" "$gs")" = "1" ]; } || G33_FAILS="$G33_FAILS m_path_wf"
+  { [ "$(g27_count "$mp" "$c35")" = "1" ] && [ "$(g27_count "$mp" "$pgt")" = "1" ]; } || G33_FAILS="$G33_FAILS m_path_sw"
+  g33_once m_path_ct "$mp" "$ol"
+  g33_once m_first_wf 'so a marker-first line is unchecked, never checked' "$gs"
+  g33_once m_first_sw 'A marker-first line is not an outcome line, so the checker never sees it.' "$pgt"
+  g33_once m_first_ct 'a marker-first line is not an outcome line, so the checker never sees it' "$ol"
+  g33_once m_ct '- **Goal scope.**' "$ol"
+  g33_once m_ct_noread 'the checker reads no marker' "$ol"
+  [ "$(g27_count '[goal scope]' "$olb")" = "0" ] || G33_FAILS="$G33_FAILS m_fence"
+  g33_once m_rat '**Why a goal-scope line carries its marker inside the restatement.**' "$rrec"
+  local mh='a goal-scope hand-back keeps its key first, `HANDED BACK: r7 [goal scope] <what is left>`'
+  { [ "$(g27_count "$mh" "$c65")" = "1" ] && [ "$(g27_count "$mh" "$gs")" = "1" ]; } || G33_FAILS="$G33_FAILS m_hb_wf"
+  { [ "$(g27_count "$mh" "$c35")" = "1" ] && [ "$(g27_count "$mh" "$pgt")" = "1" ]; } || G33_FAILS="$G33_FAILS m_hb_sw"
+  g33_once m_hb_ct '`HANDED BACK: r7 [goal scope] <what is left>`, its key first' "$ol"
+
+  # f_: one definition of "fired", and every other mention points at it
+  g33_once f_def '**What "Step 6.5 fired" means — the one definition.**' "$(cat "$wf")"
+  g33_once f_def65 '**What "Step 6.5 fired" means — the one definition.**' "$c65"
+  g33_once f_test '**Step 6.5 fired when it built at least one charter for this task**' "$(cat "$wf")"
+  g33_once f_sw 'this phase fired when it built at least one charter for this task' "$c35"
+  g33_once f_ct 'it built no charter, in the one sense `stride-workflow` Step 6.5 defines' "$ol"
+  g33_once f_gs_wf 'It runs only when this step fired, in the one sense defined at the top of this step' "$gs"
+  g33_once f_gs_sw 'only when this phase fired, in the one sense defined above' "$pgt"
+  g33_none f_old_wf 'this step fired and the explorer is being dispatched' "$wf"
+  g33_none f_old_sw 'this phase fired and the explorer is being dispatched' "$sw"
+  g33_once f_rat '**Why one definition of "fired".**' "$rrec"
+  g33_once f_budget 'A charter is built only once it survives step 1' "$c65"
+  g33_once f_budget_sw 'a charter cut by the cap or the budget not counting as built' "$c35"
+  g33_once f_readme 'on which Step 6.5 did not fire — it built no charter, in the one sense Step 6.5 defines' "$(cat "$G33_RM")"
+  g33_none f_readme_old 'a skipped gate on a task with manual tests or edge cases' "$G33_RM"
+  g33_once f_bounds '**Three boundaries, so no task can be read both ways:**' "$c65"
+  g33_once f_unit 'or every manual test and edge case mapped to a unit test the task names or to a human responsibility and left no charter' "$c65"
+  g33_once f_unit_ct 'or every manual test and edge case mapped to a unit test or a human responsibility' "$ol"
+  g33_once f_chart_wf "no charter: Step 6.5 did not fire, one 'Exploratory testing skipped:' line" "$(cat "$wf")"
+  g33_once f_chart_wf2 'build no charter, do NOT dispatch (did not fire: one skip line)' "$(cat "$wf")"
+  g33_once f_chart_sw 'charter funded --> build no charter: did not fire, one skip line' "$(cat "$sw")"
+  g33_once f_chart_sw2 '-> build no charter (did not fire: one skip line)' "$(cat "$sw")"
+  g33_none f_chart_old_wf '    Invoke the charter-generator AGENT once (change mode, pointers only);' "$wf"
+  local a b
+  a=$(g29_line "$wf" '## Step 6.5: Manual & Exploratory Testing')
+  b=$(g29_line "$wf" '**What "Step 6.5 fired" means — the one definition.**')
+  { [ "$a" -gt 0 ] && [ "$b" -gt "$a" ] && [ "$b" -lt "$(g29_line "$wf" '### Why this step exists')" ]; } 2>/dev/null || G33_FAILS="$G33_FAILS f_order"
+
+  # x_: a pathless dispatch is recorded apart; the checker still runs on the others
+  local xs='The checker still runs on every other charter'
+  local xo='every dispatch was sent no report path, and no `u<k>` line exists'
+  g33_once x_still_wf "$xs" "$c65"
+  g33_once x_still_sw "$xs" "$c35"
+  g33_once x_still_ct "$xs" "$ol"
+  g33_once x_still_rat "$xs" "$rrec"
+  g33_once x_only_wf "$xo" "$c65"
+  g33_once x_only_sw "$xo" "$c35"
+  g33_once x_only_ct "$xo" "$ol"
+  g33_once x_only_rat "$xo" "$rrec"
+  g33_once x_notrun_sw '`exploratory_outcomes_ok: not run — no report path was sent`' "$c35"
+  g33_once x_notrun_rat '`exploratory_outcomes_ok: not run — no report path was sent`' "$rrec"
+  g33_once x_s8 $'still run the block on every other charter\'s path' "$s8"
+  g33_once x_ds 'the checker still runs on the other charters, and its `not run` line stands only when every dispatch was sent no path' "$c65"
+  g33_once x_box 'while the checker still runs on the other charters; only when every dispatch was sent none' "$(cat "$ct")"
+  g33_none x_old_s8 'record the `not run` line Step 6.5 names instead.' "$wf"
+  g33_none x_old_box 'stands beside the `exploratory report path: not sent — …` line in place of `true`' "$ct"
+  g33_none x_old_ds $'hand back what it carried and record the checker\'s `not run` line' "$wf"
+  g33_once x_uk_s8 'only when every dispatch was sent none and no `u<k>` line exists' "$s8"
+  g33_once x_uk_box 'only when every dispatch was sent none and no `u<k>` line exists does' "$(cat "$ct")"
+  g33_once x_uk_ds 'only when every dispatch was sent no path and no `u<k>` line exists' "$c65"
+  g33_once x_crash_wf 'A dispatch sent no report path is recorded by the pathless rule after the checker, whatever it returned' "$c65"
+  g33_once x_crash_sw 'A dispatch sent no report path is recorded by the pathless rule below, whatever it returned' "$c35"
+  g33_once x_crash_ct 'A pathless dispatch is recorded this way whatever it returned, never as a `u<k>` crash.' "$ol"
+  g33_once x_stray_wf 'Never write that line on a record the checker ran on' "$c65"
+  g33_once x_stray_sw 'and never on a record the checker ran on' "$c35"
+  g33_once x_stray_ct 'never on a record the checker ran on' "$ol"
+  g33_once x_chart_wf '(every dispatch sent no report path and no u<k> line? --> the not-run line instead)' "$(cat "$wf")"
+  g33_once x_chart_wf2 '(all pathless, no u<k> line → the not-run line)' "$(cat "$wf")"
+  g33_once x_chart_sw '(all pathless, no u<k> line -> the not-run line)' "$(cat "$sw")"
+  g33_once x_agents 'a dispatch sent no report path is handed back instead, and the check still runs on the rest' "$(cat "$ag")"
+
+  # t_: the goal-scope not-run line needs the step to have fired, in all three
+  g33_once t_wf '**All three need this step to have fired:**' "$gs"
+  g33_once t_sw '**All three need this phase to have fired:**' "$pgt"
+  g33_once t_rat 'writes no `Goal-scope pass not run` line' "$rgs"
+  g33_none t_old_rat 'runs no pass and writes no line.' "$rat"
+
+  # a_: AGENTS.md names the PROBE_ lines and keeps role accounts out of them
+  g33_once a_new 'only a confirmed harness reaches the explorer as `PROBE_` lines (`PROBE_HARNESS`, `PROBE_SERVICES` and `PROBE_DIR`)' "$(cat "$ag")"
+  g33_once a_acct 'role accounts travel as a pointer in the environment context and never as a `PROBE_` line' "$(cat "$ag")"
+  g33_none a_old 'role accounts, which reaches the explorer as `PROBE_` lines' "$ag"
+
+  if [ -z "$G33_FAILS" ]; then echo OK; else printf '%s\n' $G33_FAILS | sort -u | tr '\n' ' '; fi
+}
+
+if [ -f "$G33_WF" ] && [ -f "$G33_SW" ] && [ -f "$G33_CT" ] && [ -f "$G33_RAT" ] && [ -f "$G33_AG" ] && [ -f "$G33_CL" ]; then
+  G33_SUM_BEFORE="$(cksum < "$G33_WF") $(cksum < "$G33_SW") $(cksum < "$G33_CT") $(cksum < "$G33_RAT") $(cksum < "$G33_AG")"
+  G33_REAL=$(g33_check "$G33_WF" "$G33_SW" "$G33_CT" "$G33_RAT" "$G33_AG")
+  g33_ok() { # <label> <prefix>...: no failing id on the real files starts with a prefix
+    local label="$1" bad="" id pre; shift
+    for id in $G33_REAL; do
+      [ "$id" = OK ] && continue
+      for pre in "$@" scope_; do case "$id" in "$pre"*) bad="$bad $id" ;; esac; done
+    done
+    assert_eq "$label" "" "$bad"
+  }
+  g33_ok "33a: a goal-scope charter line and a goal-scope finding open with the [goal scope] marker in Step 6.5, Phase 3.5 and the Outcome Lines" m_line m_find m_ct m_rat
+  g33_ok "33a2: a goal-scope hand-back keeps its key before the marker, in both twins and the Outcome Lines" m_hb
+  g33_ok "33b: the marker is the agent's, never copied from charter text, and the checker reads none" m_forge m_noread m_ct_noread
+  g33_ok "33b2: the six-line format fence carries no marker, so it stays upstream's" m_fence
+  g33_ok "33d: Group 30: goal-scope discovered findings are labelled goal scope in Step 6.5 and Phase 3.5" m_find
+  g33_ok "33d2: Group 30: one definition of Step 6.5 fired across stride-workflow and stride-completing-tasks" f_
+  g33_ok "33d3: Group 30: the rationale and both twins agree on the no-report-path line" x_
+  g33_ok "33e: the goal-scope not-run line needs the step to have fired, in both twins and the rationale" t_
+  g33_ok "33f: Group 28: AGENTS.md says only the probe harness, services and dir become PROBE_ lines" a_
+  assert_eq "33t: every rule found exactly once in its section" "OK" "$G33_REAL"
+  assert_eq "33c: the changelog carries one D405 entry under [Unreleased]" "1" \
+    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G33_CL" | grep -c '^### Fixed — .*(D405)$')"
+
+  # --- 33j-33k7: the checker, extracted from the skill and run ---
+  if command -v jq >/dev/null 2>&1; then
+    eval "$(g29_fn "$G33_WF")"
+    G33_D="$TMPDIR_TEST/g33"; G33_S="$G33_D/.stride"; mkdir -p "$G33_S"
+    G33_OK='exploratory_outcomes_ok: true'
+    G33_NO='exploratory_outcomes_ok: false'
+    g33_rep() { # $1=N $2=stop_reason $3=probes $4=surfaces JSON
+      jq -nc --arg s "$2" --argjson p "$3" --argjson u "$4" \
+        '{contract_version: "1.1", charter: "x", status: "completed", bugs: [],
+          session_sheet: {probe_budget: 12, probes_attempted: $p, stop_reason: $s, surfaces_used: $u}}' \
+        > "$G33_S/.exploratory-D9-r$1.json"
+    }
+    g33_pay() { # $1=notes $2=summary
+      jq -n --arg n "$1" --arg s "$2" '{completion_notes: $n, completion_summary: $s}' > "$G33_D/p.json"
+    }
+    g33() { exploratory_outcomes_ok "$G33_D/p.json" "$@" 2>&1; }
+    G33_R1="$G33_S/.exploratory-D9-r1.json"; G33_R2="$G33_S/.exploratory-D9-r2.json"
+    g33_rep 1 charter_quiet 5 '["http"]'
+    g33_rep 2 probe_budget_exhausted 12 '["http","source"]'
+    G33_L1='Exploratory charter r1: the board filter by label | stop_reason=charter_quiet | probes=5 | surfaces=http | outcome=performed'
+    G33_G2='Exploratory charter r2: [goal scope] the staged plan against the sibling broadcast refresh | stop_reason=probe_budget_exhausted | probes=12 | surfaces=http,source | outcome=partial'
+    G33_NS='exploratory report path: not sent — no project root'
+    G33_HBP='HANDED BACK: - run the CSV export manual test against a running app'
+
+    g33_pay "Done.
+$G33_L1
+$G33_G2" "Did it.
+Exploratory coverage: 1 performed, 1 partial, 0 not performed"
+    assert_eq "33j: Group 29: a goal-scope charter line carries the goal-scope marker and still passes exploratory_outcomes_ok" "$G33_OK" "$(g33 "$G33_R1" "$G33_R2")"
+    g33_pay "Done.
+Exploratory charter r1: the [goal scope] label filter | stop_reason=charter_quiet | probes=5 | surfaces=http | outcome=performed
+$G33_G2" "Exploratory coverage: 1 performed, 1 partial, 0 not performed"
+    assert_eq "33j2: a task-scope line whose restatement holds the marker is checked like any other" "$G33_OK" "$(g33 "$G33_R1" "$G33_R2")"
+    g33_pay "Done.
+$G33_L1
+Exploratory charter r2: [goal scope] the staged plan | stop_reason=probe_budget_exhausted | probes=12 | surfaces=http,source | outcome=performed" "Exploratory coverage: 2 performed, 0 partial, 0 not performed"
+    assert_eq "33j3: a marker cannot lift an outcome past what the report supports" "$G33_NO" "$(g33 "$G33_R1" "$G33_R2")"
+
+    g33_pay "Done.
+$G33_L1
+$G33_NS
+$G33_HBP" "Did it.
+Exploratory coverage: 1 performed, 0 partial, 0 not performed"
+    assert_eq "33k: Group 29: a mixed record with one no-report-path dispatch still checks the charters that have report paths" "$G33_OK" "$(g33 "$G33_R1")"
+    g33_pay "Done.
+$G33_L1
+$G33_NS
+$G33_HBP" "Did it.
+Exploratory coverage: 1 performed, 0 partial, 0 not performed"
+    assert_eq "33k2: Group 29: a mixed record with a missing line for a charter that has a report path prints false" "$G33_NO" "$(g33 "$G33_R1" "$G33_R2")"
+    g33_pay "Done.
+Exploratory charter r1: the board filter by label | stop_reason=charter_quiet | probes=4 | surfaces=http | outcome=performed
+$G33_NS
+$G33_HBP" "Exploratory coverage: 1 performed, 0 partial, 0 not performed"
+    assert_eq "33k3: beside a pathless dispatch, a checked line that miscopies its report is still false" "$G33_NO" "$(g33 "$G33_R1")"
+    g33_pay "Done.
+Exploratory charter u1: the members-only settings page | stop_reason=not_dispatched | probes=0 | surfaces=none | outcome=not performed | owner=HANDED BACK
+HANDED BACK: u1 sign in as a member and walk the settings page
+$G33_NS
+$G33_HBP" "Exploratory coverage: 0 performed, 0 partial, 1 not performed"
+    assert_eq "33k4: a pathless dispatch beside a u<k> charter is still checked, with no report path" "$G33_OK" "$(g33)"
+    g33_rep 3 blocked 0 '[]'
+    G33_R3="$G33_S/.exploratory-D9-r3.json"
+    G33_G3='Exploratory charter r3: [goal scope] the import seam between two siblings | stop_reason=blocked | probes=0 | surfaces=none | outcome=not performed | owner=HANDED BACK'
+    g33_pay "Done.
+$G33_L1
+$G33_G3
+HANDED BACK: r3 [goal scope] run the import seam charter against a running app" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+    assert_eq "33k6: a handed-back goal-scope charter whose hand-back keeps its key first is true" "$G33_OK" "$(g33 "$G33_R1" "$G33_R3")"
+    g33_pay "Done.
+$G33_L1
+$G33_G3
+[goal scope] HANDED BACK: r3 run the import seam charter against a running app" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+    assert_eq "33k7: a hand-back with the marker before its prefix leaves the charter unowned, so false" "$G33_NO" "$(g33 "$G33_R1" "$G33_R3")"
+    g33_pay "Done.
+$G33_NS
+$G33_HBP" "Exploratory coverage: 0 performed, 0 partial, 0 not performed"
+    assert_eq "33k5: every dispatch pathless and no u<k> leaves nothing to check, which is why the not-run line stands" "$G33_NO" "$(g33)"
+  else
+    echo "  SKIP: 33j-33k7 (jq not installed)"
+  fi
+
+  # --- 33n: break-it on mutated COPIES ---
+  G33_TMP="$TMPDIR_TEST/g33m"; mkdir -p "$G33_TMP"
+  g33_neg() { # <label> <expected id> <wf|sw|ct|rat|ag> <old> <new>
+    local w="$G33_WF" s="$G33_SW" c="$G33_CT" r="$G33_RAT" g="$G33_AG" m=""
+    rm -f "$G33_TMP"/*.md
+    case "$3" in
+      wf) m=$(g27_mut "$G33_WF" "$G33_TMP/wf.md" "$4" "$5"); w="$G33_TMP/wf.md" ;;
+      sw) m=$(g27_mut "$G33_SW" "$G33_TMP/sw.md" "$4" "$5"); s="$G33_TMP/sw.md" ;;
+      ct) m=$(g27_mut "$G33_CT" "$G33_TMP/ct.md" "$4" "$5"); c="$G33_TMP/ct.md" ;;
+      rat) m=$(g27_mut "$G33_RAT" "$G33_TMP/rat.md" "$4" "$5"); r="$G33_TMP/rat.md" ;;
+      ag) m=$(g27_mut "$G33_AG" "$G33_TMP/ag.md" "$4" "$5"); g="$G33_TMP/ag.md" ;;
+    esac
+    if [ "$m" = "MISSING" ]; then
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+      return
+    fi
+    assert_contains "$1" "$2" " $(g33_check "$w" "$s" "$c" "$r" "$g") "
+  }
+  g33_neg "33n: dropping the one fired definition fails the group" " f_def " wf \
+    '**What "Step 6.5 fired" means — the one definition.**' '**On firing.**'
+  g33_neg "33n2: restoring the gate-plus-prerequisites reading in Phase 3.5 fails the group" " f_old_sw " sw \
+    'only when this phase fired, in the one sense defined above' 'only when this phase fired and the explorer is being dispatched'
+  g33_neg "33n3: Group 29: break-it -- removing the goal-scope marker from Step 6.5 fails the group" " m_line_wf " wf \
+    '**Each goal-scope line opens its restatement with the marker `[goal scope]`**' '**Each goal-scope line is like any other**'
+  g33_neg "33n4: removing the goal-scope marker from Phase 3.5 fails the group" " m_line_sw " sw \
+    '**Each goal-scope line opens its restatement with the marker `[goal scope]`**' '**Each goal-scope line is like any other**'
+  g33_neg "33n5: dropping the finding marker from Step 6.5 fails the group" " m_find_wf " wf \
+    $'a goal-scope finding\'s record opens with the `[goal scope]` marker' 'a goal-scope finding is recorded'
+  g33_neg "33n16: dropping the finding marker from Phase 3.5 fails the group" " m_find_sw " sw \
+    $'a goal-scope finding\'s record opens with the `[goal scope]` marker' 'a goal-scope finding is recorded'
+  g33_neg "33n6: putting the marker in the format fence fails the group" " m_fence " ct \
+    'Exploratory charter r<N>: <the charter in your own words, redacted>' 'Exploratory charter r<N>: [goal scope] <the charter in your own words, redacted>'
+  g33_neg "33n7: Group 29: break-it -- removing the partial-check rule from Step 6.5 fails the group" " x_still_wf " wf \
+    '**The checker still runs on every other charter:**' ''
+  g33_neg "33n8: restoring the whole-check not-run rule in Step 8 fails the group" " x_old_s8 " wf \
+    $'still run the block on every other charter\'s path, and record the `not run` line Step 6.5 names instead only when every dispatch was sent none' 'record the `not run` line Step 6.5 names instead.'
+  g33_neg "33n9: restoring the old rationale sentence fails the group" " t_old_rat " rat \
+    'never reads the trigger, so it runs no pass and writes no `Goal-scope pass not run` line' 'runs no pass and writes no line.'
+  g33_neg "33n10: restoring the old AGENTS.md sentence fails the group" " a_old " ag \
+    'or role accounts; only a confirmed harness reaches the explorer as `PROBE_` lines' 'or role accounts, which reaches the explorer as `PROBE_` lines'
+  g33_neg "33n11: dropping the key-first hand-back rule from Phase 3.5 fails the group" " m_hb_sw " sw \
+    '**The marker never goes before a line'"'"'s fixed prefix:** a goal-scope hand-back keeps its key first, `HANDED BACK: r7 [goal scope] <what is left>`, ' ''
+  g33_neg "33n12: dropping the cap-and-budget boundary from the fired definition fails the group" " f_budget " wf \
+    'A charter is built only once it survives step 1' 'A charter is built'
+  g33_neg "33n13: dropping the u<k> clause from Step 8 fails the group" " x_uk_s8 " wf \
+    'only when every dispatch was sent none and no `u<k>` line exists — then' 'only when every dispatch was sent none — then'
+  g33_neg "33n14: restoring the old flowchart firing step fails the group" " f_chart_old_wf " wf \
+    '    Else invoke the charter-generator AGENT once (change mode, pointers only);' '    Invoke the charter-generator AGENT once (change mode, pointers only);'
+  g33_neg "33n15: restoring the add-no-marker reading in stride-completing-tasks fails the group" " m_forge_old_ct " ct \
+    'when the charter text holds the marker or a look-alike (`[GOAL SCOPE]`, `(goal scope)`), leave that text out of your restatement and still write your own' 'leave it out of a restatement whose charter text holds it'
+  assert_eq "33z: the break-it cases left the real files untouched" "$G33_SUM_BEFORE" \
+    "$(cksum < "$G33_WF") $(cksum < "$G33_SW") $(cksum < "$G33_CT") $(cksum < "$G33_RAT") $(cksum < "$G33_AG")"
+else
+  echo "  SKIP: Test Group 33 (a skill, the rationale, AGENTS.md or the changelog is missing)"
 fi
 
 echo ""
