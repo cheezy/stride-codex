@@ -591,7 +591,9 @@ b' "$G_CMD" "$G_OK")"
   assert_contains "1z7: that refusal is announced too" "symlink" "$(cat "$G_ERR")"
 
   # 1z3: PROJECT_DIR resolution. Codex sets no *_PROJECT_DIR of its own, so
-  # the event's own `.cwd` is the fallback that makes the hook work at all.
+  # the event's own `.cwd` is what makes the hook work at all: the walk to the
+  # nearest .stride.md starts there, and with none above it (as here) the cwd
+  # itself is the root (Group 38 covers the walk, D410).
   D=$(g_proj)
   printf '%s' "$(jq -nc --arg s 'sess-cwd' --arg c "$G_CMD" --arg r "$G_OK" --arg d "$D" \
     '{session_id:$s,cwd:$d,tool_input:{command:$c},tool_response:{stdout:$r}}')" \
@@ -2950,10 +2952,12 @@ fi
 #
 # How each side finds the project root. stride's hook takes CLAUDE_PROJECT_DIR
 # or "."; only its Step 7 cleanup walks up to .stride.md. This port's hook
-# takes CODEX_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then the event's own `.cwd`
-# (10k), and never walks. Its Step 8 backstop takes the same two variables and
-# then walks up to .stride.md, because a shell cannot see the event's `.cwd`;
-# 10r runs that block from a subdirectory.
+# takes CODEX_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then the nearest
+# .stride.md at or above the event's own `.cwd`, then that `.cwd` itself (10k;
+# the walk is D410's, pinned in Group 38). Its Step 8 backstop takes the same
+# two variables and then walks up to .stride.md from the shell's own working
+# directory, because a shell cannot see the event's `.cwd`; 10r runs that
+# block from a subdirectory.
 
 echo ""
 echo "=== Test Group 10: the claimed task's own file (W2589) ==="
@@ -9361,6 +9365,233 @@ if [ -f "$G37_WF" ] && [ -f "$G37_CT" ] && [ -f "$G37_CL" ] && command -v jq >/d
     "$(cksum < "$G37_WF") $(cksum < "$G37_CT") $(cksum < "$G37_CL")"
 else
   echo "  SKIP: Test Group 37 (a skill, the changelog or jq is missing)"
+fi
+
+# ============================================================================
+# Test Group 38: D410 -- the hooks resolve the project root with the skills'
+# own .stride.md walk-up
+# ============================================================================
+# stride-hook.sh and stride-stop-gate.sh took CODEX_PROJECT_DIR, then
+# CLAUDE_PROJECT_DIR, then the event's .cwd, then ".", while D404 moved the
+# skills to the two variables and then the nearest .stride.md above the
+# working directory. From a nested repo or a subdirectory the recorder wrote
+# .loop-state.json and .claim-state.json into a .stride/ the skills never read,
+# and the gate judged that record. 38a-38j feed the REAL hooks events whose
+# .cwd sits under a scratch project and check where the records land and which
+# .stride_auth.md the gate sends; 38l feeds a non-string .cwd and 38m a .cwd
+# with `..` parts; 38k pins the two copies of the block
+# byte-identical; 38n1-38n2 run copies with the old chain restored and show
+# the nested-subdirectory cases catch it; 38p pins the README section and the
+# changelog entry; 38z shows the real hooks were never written. The task's
+# named unit tests keep their testing_strategy names, prefixed with their
+# Group 38 id.
+# What this does NOT prove: what `.cwd` a live Codex CLI puts on its events
+# (no Codex CLI here).
+echo ""
+echo "=== Test Group 38: the hooks find the project root by the skills' .stride.md walk-up (D410) ==="
+
+G38_GATE="$SCRIPT_DIR/stride-stop-gate.sh"
+G38_README="$PORT_ROOT/README.md"
+G38_CL="$PORT_ROOT/CHANGELOG.md"
+if [ -f "$G38_GATE" ] && [ -f "$G38_README" ] && [ -f "$G38_CL" ] && command -v jq >/dev/null 2>&1; then
+  G38_SUM_BEFORE="$(cksum < "$HOOK_SCRIPT") $(cksum < "$G38_GATE")"
+  G38_X="$TMPDIR_TEST/g38 dir"
+  rm -rf "$G38_X"; mkdir -p "$G38_X"
+  G38_CLAIM='curl -X POST https://stride.invalid/api/tasks/claim'
+  G38_DONE='curl -X PATCH https://stride.invalid/api/tasks/99/complete'
+  G38_CLAIMED='{"data":{"id":1,"identifier":"W38"}}'
+  G38_OK='{"data":{"id":99,"identifier":"W38","needs_review":false}}'
+  # g38_mkproj <dir> [token]: a project root; with a token, its own .stride_auth.md
+  g38_mkproj() {
+    mkdir -p "$1"; : > "$1/.stride.md"
+    [ -z "${2:-}" ] || printf '# fixture\n- **API URL:** `https://api.example.invalid`\n- **API Token:** `%s`\n' "$2" > "$1/.stride_auth.md"
+  }
+  # g38_event <cwd|-> <command> <stdout>: "-" leaves .cwd off the event
+  g38_event() {
+    if [ "$1" = "-" ]; then
+      jq -nc --arg c "$2" --arg r "$3" '{session_id:"g38",tool_input:{command:$c},tool_response:{stdout:$r}}'
+    else
+      jq -nc --arg d "$1" --arg c "$2" --arg r "$3" '{session_id:"g38",cwd:$d,tool_input:{command:$c},tool_response:{stdout:$r}}'
+    fi
+  }
+  # g38_hook <hook script> <run-from dir> <event> [VAR=value...]: no project variable unless given
+  g38_hook() {
+    local h=$1 from=$2 ev=$3; shift 3
+    ( cd "$from" && printf '%s' "$ev" | env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR "$@" bash "$h" post ) >/dev/null 2>&1
+  }
+  # g38_id <dir> <record>: the identifier in <dir>/.stride/<record>, or "absent"
+  g38_id() { jq -r '.identifier' "$1/.stride/$2" 2>/dev/null || echo absent; }
+  g38_has() { [ -e "$1" ] && echo present || echo absent; }
+
+  # 38a/38b: a nested repo inside a project (with a space in its path)
+  G38_P="$G38_X/proj"; g38_mkproj "$G38_P"; mkdir -p "$G38_P/nested/repo/lib"
+  G38_PP=$(cd "$G38_P" && pwd -P)
+  g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_P/nested/repo/lib" "$G38_CLAIM" "$G38_CLAIMED")"
+  assert_eq "38a: Group 38: stride-hook.sh run from a nested subdirectory with no env var writes its loop and claim state under the .stride.md root (claim)" \
+    "W38 absent" "$(g38_id "$G38_P" .claim-state.json) $(g38_has "$G38_P/nested/repo/lib/.stride")"
+  g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_P/nested/repo/lib" "$G38_DONE" "$G38_OK")"
+  assert_eq "38b: Group 38: stride-hook.sh run from a nested subdirectory with no env var writes its loop and claim state under the .stride.md root (loop)" \
+    "W38 absent absent" "$(g38_id "$G38_P" .loop-state.json) $(g38_has "$G38_P/.stride/.claim-state.json") $(g38_has "$G38_P/nested/repo/lib/.stride")"
+
+  # 38c: the variables still win over the walk
+  G38_Q="$G38_X/elsewhere"; mkdir -p "$G38_Q"; G38_P2="$G38_X/proj2"; g38_mkproj "$G38_P2"; mkdir -p "$G38_P2/sub"
+  g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_P2/sub" "$G38_CLAIM" "$G38_CLAIMED")" CODEX_PROJECT_DIR="$G38_Q"
+  assert_eq "38c: Group 38: stride-hook.sh with CODEX_PROJECT_DIR set still uses it first" \
+    "W38 absent" "$(g38_id "$G38_Q" .claim-state.json) $(g38_has "$G38_P2/.stride")"
+  rm -rf "$G38_Q/.stride"
+  g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_P2/sub" "$G38_CLAIM" "$G38_CLAIMED")" CLAUDE_PROJECT_DIR="$G38_Q"
+  assert_eq "38c2: CLAUDE_PROJECT_DIR also wins over the walk" \
+    "W38 absent" "$(g38_id "$G38_Q" .claim-state.json) $(g38_has "$G38_P2/.stride")"
+
+  # 38d: the walk stops at the NEAREST .stride.md
+  G38_O="$G38_X/outer"; g38_mkproj "$G38_O" 'g38outer'
+  G38_I="$G38_O/inner"; g38_mkproj "$G38_I"; mkdir -p "$G38_I/lib"
+  g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_I/lib" "$G38_CLAIM" "$G38_CLAIMED")"
+  assert_eq "38d: Group 38: the walk-up stops at the nearest .stride.md and never reads a parent's .stride_auth.md (recorder)" \
+    "W38 absent" "$(g38_id "$G38_I" .claim-state.json) $(g38_has "$G38_O/.stride")"
+
+  # 38e-38f: the gate, from a nested directory, reads the record the hook wrote
+  # and sends the nearest root's token. g38_gate <cwd> <stub dir>
+  g38_stub() {
+    local d; d=$(mktemp -d "$TMPDIR_TEST/g38stub.XXXXXX")
+    { printf '#!/usr/bin/env bash\n'
+      printf 'printf "ARGS: %%s\\n" "$*" >> "%s/curl.log"\n' "$d"
+      printf 'cat >> "%s/curl.log" 2>/dev/null\n' "$d"
+      printf 'printf "%%s\\n%%s" %s 200\n' "$(printf '%q' '{"data":{"id":2,"identifier":"W39"}}')"
+    } > "$d/curl"
+    chmod +x "$d/curl"; printf '%s' "$d"
+  }
+  # g38_gate <cwd> <stub dir> [gate script]: "block", or "permit" on an empty stdout
+  g38_gate() {
+    local g=${3:-$G38_GATE} out
+    out=$(jq -nc --arg d "$1" '{cwd:$d,session_id:"g38",hook_event_name:"Stop"}' \
+      | env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u STRIDE_ALLOW_STOP -u STRIDE_STOP_GATE_MAX_BLOCKS PATH="$2:$PATH" bash "$g" 2>/dev/null)
+    if [ -n "$out" ]; then printf '%s' "$out" | jq -r '.decision' 2>/dev/null || echo unparsable; else echo permit; fi
+  }
+  # g38_n <needle> <file>: how many lines of <file> hold <needle>; 0 when it is absent
+  g38_n() { local c; c=$(grep -c -- "$1" "$2" 2>/dev/null); echo "${c:-0}"; }
+  g38_state() {
+    mkdir -p "$1/.stride"; rm -f "$1/.stride/.stop-gate-blocks"
+    printf '{"identifier":"W38","needs_review":false,"completed_at":"2026-01-01T00:00:00Z","session_id":"g38"}\n' > "$1/.stride/.loop-state.json"
+  }
+  G38_G="$G38_X/gate"; g38_mkproj "$G38_G" 'g38gate'; mkdir -p "$G38_G/a/b"; g38_state "$G38_G"
+  G38_S=$(g38_stub)
+  assert_eq "38e: the gate run from a nested directory reads the root's loop state and blocks" \
+    "block" "$(g38_gate "$G38_G/a/b" "$G38_S")"
+  G38_GO="$G38_X/gouter"; g38_mkproj "$G38_GO" 'g38outer'
+  G38_GI="$G38_GO/inner"; g38_mkproj "$G38_GI" 'g38inner'; mkdir -p "$G38_GI/lib"; g38_state "$G38_GI"
+  G38_S=$(g38_stub); g38_gate "$G38_GI/lib" "$G38_S" >/dev/null
+  assert_eq "38f: Group 38: the walk-up stops at the nearest .stride.md and never reads a parent's .stride_auth.md (gate)" \
+    "1 0" "$(g38_n g38inner "$G38_S/curl.log") $(g38_n g38outer "$G38_S/curl.log")"
+  rm -f "$G38_GI/.stride_auth.md"; rm -f "$G38_GI/.stride/.stop-gate-blocks"
+  G38_S=$(g38_stub)
+  assert_eq "38f2: an inner root with no .stride_auth.md permits and never falls back to the parent's token" \
+    "permit 0" "$(g38_gate "$G38_GI/lib" "$G38_S") $(g38_n g38outer "$G38_S/curl.log")"
+
+  # 38g: no .stride.md anywhere above the cwd -- the defined fallback
+  G38_N="$G38_X/noproj"; mkdir -p "$G38_N/deep"
+  G38_NONE="no root"; d="$G38_N/deep"; while [ "$d" != "/" ]; do [ -f "$d/.stride.md" ] && G38_NONE="root at $d"; d=$(dirname "$d"); done
+  if [ "$G38_NONE" = "no root" ]; then
+    g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_N/deep" "$G38_CLAIM" "$G38_CLAIMED")"
+    assert_eq "38g: Group 38: stride-hook.sh with no .stride.md anywhere above cwd behaves as documented (the defined fallback) and never writes above the event cwd" \
+      "W38 absent absent" "$(g38_id "$G38_N/deep" .claim-state.json) $(g38_has "$G38_N/.stride") $(g38_has "$G38_X/.stride")"
+    # a relative .cwd with no .stride.md above still ends, rooted at that cwd
+    g38_hook "$HOOK_SCRIPT" "$G38_N" "$(g38_event "deep" "$G38_DONE" "$G38_OK")"
+    assert_eq "38g2: a relative .cwd with no .stride.md above terminates and falls back to that cwd" \
+      "W38" "$(g38_id "$G38_N/deep" .loop-state.json)"
+  else
+    echo "  SKIP: 38g (a .stride.md sits above the temp directory)"
+  fi
+
+  # 38h: an event without .cwd walks up from the hook's own working directory
+  G38_H="$G38_X/nocwd"; g38_mkproj "$G38_H"; mkdir -p "$G38_H/x/y"
+  g38_hook "$HOOK_SCRIPT" "$G38_H/x/y" "$(g38_event - "$G38_CLAIM" "$G38_CLAIMED")"
+  assert_eq "38h: an event without .cwd walks up from the hook's working directory" \
+    "W38 absent" "$(g38_id "$G38_H" .claim-state.json) $(g38_has "$G38_H/x/y/.stride")"
+
+  # 38i: a symlinked cwd inside the project, and CDPATH set
+  G38_L="$G38_X/linkproj"; g38_mkproj "$G38_L"; mkdir -p "$G38_X/target dir"
+  ln -s "$G38_X/target dir" "$G38_L/link"
+  g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_L/link" "$G38_CLAIM" "$G38_CLAIMED")" CDPATH="$G38_X:$G38_L"
+  assert_eq "38i: a symlinked cwd inside the project, with CDPATH set, roots at the project, never at the link's target" \
+    "W38 absent" "$(g38_id "$G38_L" .claim-state.json) $(g38_has "$G38_X/target dir/.stride")"
+  # 38j: a project reached through a symlink lands in the same directory
+  ln -s "$G38_P" "$G38_X/plink"; rm -rf "$G38_P/.stride"
+  g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_X/plink/nested" "$G38_CLAIM" "$G38_CLAIMED")" CDPATH="$G38_X"
+  assert_eq "38j: a project reached through a symlinked path records in the project itself" \
+    "W38" "$(g38_id "$G38_PP" .claim-state.json)"
+
+  # 38l: a .cwd that is not a string is ignored, never made a root. Run where
+  # no .stride.md sits above, so the fallback -- not the walk -- is what decides:
+  # the record lands in the hook's own cwd and no directory is made from the value.
+  G38_R="$G38_X/typed"; mkdir -p "$G38_R"
+  G38_NONE="no root"; d="$G38_R"; while [ "$d" != "/" ]; do [ -f "$d/.stride.md" ] && G38_NONE="root at $d"; d=$(dirname "$d"); done
+  if [ "$G38_NONE" = "no root" ]; then
+    for v in 5 null true '["a"]'; do
+      rm -rf "$G38_R/.stride" "$G38_R/5" "$G38_R/true"
+      ( cd "$G38_R" && jq -nc --argjson v "$v" --arg c "$G38_CLAIM" --arg r "$G38_CLAIMED" \
+          '{session_id:"g38",cwd:$v,tool_input:{command:$c},tool_response:{stdout:$r}}' \
+        | env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR bash "$HOOK_SCRIPT" post ) >/dev/null 2>&1
+      assert_eq "38l: Group 38: a non-string .cwd ($v) is ignored, so no directory is made from it and the record lands in the hook's own cwd" \
+        "W38 absent absent" "$(g38_id "$G38_R" .claim-state.json) $(g38_has "$G38_R/5") $(g38_has "$G38_R/true")"
+    done
+  else
+    echo "  SKIP: 38l (a .stride.md sits above the temp directory)"
+  fi
+
+  # 38m: a .cwd with `..` parts is folded first, so the walk never checks a
+  # directory below the cwd (Y/x/.. is Y: Y/x/.stride.md is not its root)
+  G38_Y="$G38_X/dots"; mkdir -p "$G38_Y/x"; : > "$G38_Y/x/.stride.md"
+  G38_NONE="no root"; d="$G38_Y"; while [ "$d" != "/" ]; do [ -f "$d/.stride.md" ] && G38_NONE="root at $d"; d=$(dirname "$d"); done
+  if [ "$G38_NONE" = "no root" ]; then
+    g38_hook "$HOOK_SCRIPT" "$G38_X" "$(g38_event "$G38_Y/x/.." "$G38_CLAIM" "$G38_CLAIMED")"
+    assert_eq "38m: a .cwd of Y/x/.. never roots at Y/x, a directory below the cwd" \
+      "absent W38" "$(g38_has "$G38_Y/x/.stride") $(g38_id "$G38_Y" .claim-state.json)"
+  else
+    echo "  SKIP: 38m (a .stride.md sits above the temp directory)"
+  fi
+
+  # 38k: the writer and the reader carry one block, byte for byte
+  g38_block() { awk '/^# >>> project root \(D410\)/{f=1} f; /^# <<< project root \(D410\)/{exit}' "$1"; }
+  G38_BH=$(g38_block "$HOOK_SCRIPT"); G38_BG=$(g38_block "$G38_GATE")
+  assert_eq "38k: stride-hook.sh and stride-stop-gate.sh carry the same root block" \
+    "yes yes" "$([ -n "$G38_BH" ] && [ "$G38_BH" = "$G38_BG" ] && echo yes || echo no) $(printf '%s\n' "$G38_BH" | grep -q 'stride\.md' && echo yes || echo no)"
+
+  # 38n: break-it -- the old env/cwd/dot chain restored in a copy
+  G38_OLD='PROJECT_DIR="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
+if [ -z "$PROJECT_DIR" ]; then
+  PROJECT_DIR=$(printf '"'"'%s'"'"' "$INPUT" | jq -r '"'"'.cwd // empty'"'"' 2>/dev/null || echo "")
+fi
+[ -n "$PROJECT_DIR" ] || PROJECT_DIR="."'
+  g38_old() {
+    OLD="$G38_OLD" awk '/^# >>> project root \(D410\)/{skip=1; print ENVIRON["OLD"]; next}
+      skip && /^# <<< project root \(D410\)/{skip=0; next} !skip' "$1" > "$2"
+  }
+  mkdir -p "$G38_X/brk"; g38_old "$HOOK_SCRIPT" "$G38_X/brk/stride-hook.sh"; g38_old "$G38_GATE" "$G38_X/brk/stride-stop-gate.sh"
+  rm -rf "$G38_P/.stride" "$G38_P/nested/repo/lib/.stride"
+  g38_hook "$G38_X/brk/stride-hook.sh" "$G38_X" "$(g38_event "$G38_P/nested/repo/lib" "$G38_CLAIM" "$G38_CLAIMED")"
+  assert_eq "38n1: Group 38: break-it - reverting to the env/cwd/dot chain makes the nested-subdirectory test fail" \
+    "absent present" "$(g38_id "$G38_P" .claim-state.json) $(g38_has "$G38_P/nested/repo/lib/.stride")"
+  g38_state "$G38_G"; G38_S=$(g38_stub)
+  assert_eq "38n2: break-it - the old chain in the gate permits from a nested directory, so 38e catches it" \
+    "permit" "$(g38_gate "$G38_G/a/b" "$G38_S" "$G38_X/brk/stride-stop-gate.sh")"
+
+  # 38n3: break-it -- a walk that does not stop at the first .stride.md reaches the parent
+  awk '!done && /^      break$/ {print "      :"; done=1; next} {print}' "$HOOK_SCRIPT" > "$G38_X/brk/stride-hook-nostop.sh"
+  rm -rf "$G38_I/.stride" "$G38_O/.stride"
+  g38_hook "$G38_X/brk/stride-hook-nostop.sh" "$G38_X" "$(g38_event "$G38_I/lib" "$G38_CLAIM" "$G38_CLAIMED")"
+  assert_eq "38n3: break-it - a walk that does not stop at the nearest .stride.md roots at the parent, so 38d catches it" \
+    "absent W38" "$(g38_id "$G38_I" .claim-state.json) $(g38_id "$G38_O" .claim-state.json)"
+
+  # 38p: the documented root and this changelog entry
+  assert_eq "38p: README states the root order and the no-.stride.md fallback once; the changelog carries this entry once under [Unreleased]" \
+    "1 1 1" \
+    "$(grep -c '^#### Where the hooks look — the project root$' "$G38_README") $(grep -c 'With no `.stride.md` anywhere above, the root is the event' "$G38_README") $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G38_CL" | grep -c '^### Fixed — .*(D410)$')"
+  rm -rf "$G38_X"
+  assert_eq "38z: the break-it cases left the real hooks untouched" "$G38_SUM_BEFORE" \
+    "$(cksum < "$HOOK_SCRIPT") $(cksum < "$G38_GATE")"
+else
+  echo "  SKIP: Test Group 38 (the gate, the README, the changelog or jq is missing)"
 fi
 
 echo ""

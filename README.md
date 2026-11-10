@@ -341,6 +341,32 @@ stderr, or the block reason — and the call is bounded by
 `.stride/` must be gitignored — see step 1 of the installer's next steps; it
 holds the block counter as well as the loop-state record.
 
+#### Where the hooks look — the project root
+
+Both hooks find the project root the way the skills do, so the records they
+write and read are the ones the skills write and read:
+
+1. `CODEX_PROJECT_DIR`, when set;
+2. otherwise `CLAUDE_PROJECT_DIR`, when set;
+3. otherwise the nearest directory at or above the event's `.cwd` (or, on an
+   event without one, the hook's own working directory) that holds a
+   `.stride.md`. The walk stops at that nearest `.stride.md`, so a nested
+   project's records, and the `.stride_auth.md` they read, are never a parent
+   project's. The start is folded first, so a `..` in it never walks below an existing
+   directory, and the root found is canonicalised with `CDPATH` cleared.
+
+With no `.stride.md` anywhere above, the root is the event's `.cwd`, then `.`
+— the hook's behaviour before the walk existed. The skills have no root at all
+in that case and do nothing, but the recorder must still write its record, and
+it never writes above the event's working directory. The two hooks carry one
+copy of this block, byte for byte.
+
+Two limits remain. The hook walks the event's `.cwd` as given and the skills
+walk their shell's `$PWD`, so when one sees a symlinked path and the other the
+physical one, they can still pick different roots. And a relative
+`CODEX_PROJECT_DIR` or `CLAUDE_PROJECT_DIR` is resolved against each process's
+own working directory, so set either variable to an absolute path.
+
 ### Where Codex sits in the stop-hook capability matrix
 
 <!-- canon:stop-hook-capability v1 -->
