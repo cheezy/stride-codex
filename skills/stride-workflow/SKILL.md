@@ -1734,22 +1734,41 @@ When the just-completed task is the **final child of a parent goal**, the server
 
 **Because stride-codex's plugin hook script records loop state only and never executes a `.stride.md` section, the agent is responsible for the entire after_goal lifecycle.** Manual execution path:
 
-1. **Detect (read the canonical file, not your context)**: The completion curls write the full response to the canonical file `${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json` (via `| tee`; there is **no** `curl --output` fallback as of 1.38.0 — the `PreToolUse` guard refuses it — see `stride-completing-tasks`). Read the after_goal entry **and** its `hook.env` `GOAL_*` values from that file with `jq` — file-first, because your in-context copy of the response may be truncated — falling back to the response body still visible in your context only when the file is absent, empty, or not valid JSON. Re-read from the file rather than trusting env carried across shell turns. The `.stride/` directory holds agent-local state and must be gitignored.
+1. **Detect (read the canonical file, not your context)**: The completion curls write the full response to the canonical file `.stride/.last-api-response.json` under the project root — the block below finds that root with `stride-completing-tasks` § API Request Format's own root lines, so it reads the file the curl wrote whichever directory it runs from (D411) — (via `| tee`; there is **no** `curl --output` fallback as of 1.38.0 — the `PreToolUse` guard refuses it — see `stride-completing-tasks`). Read the after_goal entry **and** its `hook.env` `GOAL_*` values from that file with `jq` — file-first, because your in-context copy of the response may be truncated — falling back to the response body still visible in your context only when the file is absent, empty, or not valid JSON. Write that fallback, with your file-writing tool and fresh for this response, to `.stride/.in-context-response.json` under the same root — never to a shared temp path, where another project or an earlier goal can leave a stale response (D411); with no root there is no fallback and 1a decides. Re-read from the file rather than trusting env carried across shell turns. The `.stride/` directory holds agent-local state and must be gitignored.
 
 ```bash
-RESP="${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"
+# The project root, found exactly as the API Request Format block finds it (D411):
+# CODEX_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then the nearest .stride.md above,
+# made absolute -- so this reads the file that block's `| tee` wrote, from any cwd.
+ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
+if [ -z "$ROOT" ]; then
+  d=$PWD
+  while [ "$d" != "/" ]; do
+    [ -f "$d/.stride.md" ] && { ROOT=$d; break; }
+    d=$(dirname "$d")
+  done
+fi
+# CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
+RESP="$ROOT/.stride/.last-api-response.json"
 # File-first: trust the canonical capture only when present, non-empty, AND valid
 # JSON; otherwise fall back to the response body still visible in your context.
-if [ -s "$RESP" ] && jq -e . "$RESP" > /dev/null 2>&1; then
+if [ -n "$ROOT" ] && [ -s "$RESP" ] && jq -e . "$RESP" > /dev/null 2>&1; then
   PAYLOAD_SRC="$RESP"
 else
-  PAYLOAD_SRC="${TMPDIR:-/tmp}/stride-in-context-response.json"  # fallback: the response you can see in context
+  # Fallback (D411): the response you can see in context, written FRESH with your
+  # file-writing tool to this path under the same root -- never a shared temp path
+  # another project or an earlier goal could have left there. No root, no fallback:
+  # PAYLOAD_SRC stays empty and 1a's fresh GET decides.
+  PAYLOAD_SRC=""
+  [ -n "$ROOT" ] && PAYLOAD_SRC="$ROOT/.stride/.in-context-response.json"
+  echo 'after_goal Detect: no usable capture under the project root; reading the in-context fallback, which you must write from this response first (or 1a when there is none)' >&2
 fi
 
 # Isolate the after_goal entry. An empty result has TWO causes, distinguished in 1a below:
 # (a) PAYLOAD_SRC parsed as valid JSON but had no after_goal entry -> lifecycle did not fire;
 # (b) PAYLOAD_SRC was unusable (truncated/absent) -> do NOT assume; run the fresh GET (1a).
-AFTER_GOAL_ENTRY=$(jq -c '.hooks[]? | select(.name == "after_goal")' "$PAYLOAD_SRC")
+AFTER_GOAL_ENTRY=$(jq -c '.hooks[]? | select(.name == "after_goal")' "$PAYLOAD_SRC" 2>/dev/null)
 if [ -n "$AFTER_GOAL_ENTRY" ]; then
   GOAL_ID=$(printf '%s' "$AFTER_GOAL_ENTRY"         | jq -r '.hook.env.GOAL_ID')
   GOAL_IDENTIFIER=$(printf '%s' "$AFTER_GOAL_ENTRY" | jq -r '.hook.env.GOAL_IDENTIFIER')
@@ -1767,8 +1786,26 @@ fi
 Source every input durably — re-read the URL/token from `.stride_auth.md` (the durable source your setup step already used) and re-derive `TASK_ID` from the captured response file. Never trust a variable an earlier turn exported.
 
 ```bash
+# The project root, found exactly as the API Request Format block finds it (D411):
+# CODEX_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then the nearest .stride.md above,
+# made absolute -- so this reads the file that block's `| tee` wrote, from any cwd.
+ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
+if [ -z "$ROOT" ]; then
+  d=$PWD
+  while [ "$d" != "/" ]; do
+    [ -f "$d/.stride.md" ] && { ROOT=$d; break; }
+    d=$(dirname "$d")
+  done
+fi
+# CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
+if [ -z "$ROOT" ]; then
+  # No project root: nothing durable to read the URL and token from (D411).
+  echo 'after_goal 1a: no project root found: not checking; run this from inside the project' >&2
+  AFTER_GOAL_ENTRY=""
+else
 # Durable re-read from .stride_auth.md (mirror the setup step) — NOT a prior turn's export.
-AUTH="${CLAUDE_PROJECT_DIR:-.}/.stride_auth.md"
+AUTH="$ROOT/.stride_auth.md"
 STRIDE_API_URL=$(grep -oE 'https?://[^`" ]+' "$AUTH" | head -n1)
 # If .stride_auth.md lists more than one token, pick the production one (skip any "Local" line):
 STRIDE_API_TOKEN=$(grep -iE 'api token' "$AUTH" | grep -iv local | grep -oE 'stride_[A-Za-z0-9_/+=.-]+' | head -n1)
@@ -1777,7 +1814,7 @@ TASK_ID=$(jq -r '.data.id // .data.identifier' "$PAYLOAD_SRC" 2>/dev/null)
 
 # Write the compact status straight to the canonical file with -o (no stdout to truncate),
 # then parse from disk.
-STATUS_FILE="${CLAUDE_PROJECT_DIR:-.}/.stride/.after-goal-status.json"
+STATUS_FILE="$ROOT/.stride/.after-goal-status.json"
 curl -s --max-time 10 -o "$STATUS_FILE" \
   -H "Authorization: Bearer $STRIDE_API_TOKEN" \
   "$STRIDE_API_URL/api/tasks/$TASK_ID/after_goal_status"
@@ -1796,6 +1833,7 @@ else
   # Not armed, or the GET failed / returned invalid JSON: a clean no-op. Do NOT run
   # ## after_goal and do NOT PATCH. Leave AFTER_GOAL_ENTRY empty and skip steps 2-5.
   AFTER_GOAL_ENTRY=""
+fi
 fi
 ```
 

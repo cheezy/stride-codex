@@ -8363,8 +8363,9 @@ G34_RAT="$PORT_ROOT/docs/orchestrator-rationale.md"
 G34_CL="$PORT_ROOT/CHANGELOG.md"
 G34_RM="$PORT_ROOT/README.md"
 G34_AG="$PORT_ROOT/AGENTS.md"
-G34_CF='--argjson cf "$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo '"'"'[]'"'"')"'
-G34_TEE='| tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"'
+# D411: both read the block's absolute $ROOT, never ${CLAUDE_PROJECT_DIR:-.}
+G34_CF='--argjson cf "$CF_JSON"'
+G34_TEE='| tee "$ROOT/.stride/.last-api-response.json"'
 G34_GUARD='if [ -z "$ROOT" ] || [ -z "$OC_STEM" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ] \'
 G34_GUARD2='   || [ ! -f "$OC" ] || [ -L "$OC" ] \'
 G34_VALID="   || ! jq -se 'length == 1 and (.[0] | type) == \"object\" and (.[0].completion_notes | type) == \"string\" and (.[0].completion_summary | type) == \"string\"' \"\$OC\" >/dev/null 2>&1; then"
@@ -8473,7 +8474,7 @@ $frag")
   [ -n "$s8b" ] && [ "$(printf '%s\n' "$api" | head -15)" = "$(printf '%s\n' "$s8b" | head -15)" ] \
     || G34_FAILS="$G34_FAILS s_same"
   g34_once s_api '--slurpfile oc "$OC" \' "$api"
-  g34_once s_frag '--slurpfile oc "${CLAUDE_PROJECT_DIR:-.}/.stride/.outcomes-<IDENTIFIER>.json" \' "$frag"
+  g34_once s_frag '--slurpfile oc "$ROOT/.stride/.outcomes-$OC_STEM.json" \' "$frag"
   g34_once s_guard "$G34_GUARD" "$api"
   g34_once s_guard2 "$G34_GUARD2" "$api"
   g34_once s_valid "$G34_VALID" "$api"
@@ -8630,14 +8631,23 @@ Approved \n stays two characters.'
     assert_eq "34k12: and it reads the root's changed-files snapshot, tees at the root and leaves the caller's directory alone" \
       'true|present|absent|sub/deep' \
       "$(printf '%s' "$G34_BODY" | jq -c '.changed_files == ["root.ex"]' 2>/dev/null)|$([ -s "$G34_D/.stride/.last-api-response.json" ] && echo present || echo absent)|$([ -e "$G34_D/sub/deep/.stride/.last-api-response.json" ] && echo present || echo absent)|$(sed "s|^$G34_D/||" "$G34_D/PWD_AFTER" 2>/dev/null)"
+    # D411 made the snapshot read and the tee absolute ($ROOT), so the cd alone
+    # no longer decides where they land: the break restores all three
     G34_PAT='( cd "$ROOT" && curl'; G34_NEW='( curl'
     G34_NOCD=${G34_BLK/"$G34_PAT"/"$G34_NEW"}
+    G34_PAT='CF="$ROOT/.stride-changed-files.json"'; G34_NEW='CF="${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json"'
+    G34_NOCD=${G34_NOCD/"$G34_PAT"/"$G34_NEW"}
+    G34_PAT="$G34_TEE"; G34_NEW='| tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"'
+    G34_NOCD=${G34_NOCD/"$G34_PAT"/"$G34_NEW"}
     G34_BODY=$(g34_api "$G34_NOCD" "$G34_D/sub/deep" none)
-    assert_eq "34n18: break-it -- without the cd a subdirectory run reads the wrong changed-files snapshot and tees there" \
+    assert_eq "34n18: break-it -- without the cd and with the snapshot read and tee relative to the caller (pre-D411) a subdirectory run reads the wrong changed-files snapshot and tees there" \
       'false|present' \
       "$(printf '%s' "$G34_BODY" | jq -c '.changed_files == ["root.ex"]' 2>/dev/null)|$([ -e "$G34_D/sub/deep/.stride/.last-api-response.json" ] && echo present || echo absent)"
     rm -rf "$G34_D/.stride-changed-files.json" "$G34_D/sub/deep/.stride" "$G34_D/sub/deep/.stride-changed-files.json" "$G34_D/PWD_AFTER"
-    g34_api "$G34_BLK" "$G34_D/sub" "$G34_D" >/dev/null
+    # Run from OUTSIDE the tree (D411): from $G34_D/sub the walk-up found the
+    # root too, so this passed with the CODEX_PROJECT_DIR term deleted (39k9)
+    mkdir -p "$TMPDIR_TEST/g34-outside"
+    g34_api "$G34_BLK" "$TMPDIR_TEST/g34-outside" "$G34_D" >/dev/null
     assert_eq "34k9: CODEX_PROJECT_DIR alone names the root, as in Step 8's block" "present" "$(g34_sent)"
     mkdir -p "$G34_D/.stride/.outcomes-D9"; cp "$G34_D/elsewhere.json" "$G34_D/.stride/x.json"
     G34_IDENT='D9/../x'; g34_api "$G34_BLK" >/dev/null; unset G34_IDENT
@@ -8702,7 +8712,7 @@ Approved \n stays two characters.'
   g34_neg "34n5: dropping the changed-files read from the example fails the group" " k_cf_api " ct \
     "    $G34_CF \\" '    --argjson cf "[]" \'
   g34_neg "34n5b: reading the fragment's notes from somewhere other than the file fails the group" " s_frag " ct \
-    '--slurpfile oc "${CLAUDE_PROJECT_DIR:-.}/.stride/.outcomes-<IDENTIFIER>.json" \' '--slurpfile oc notes.json \'
+    '--slurpfile oc "$ROOT/.stride/.outcomes-$OC_STEM.json" \' '--slurpfile oc notes.json \'
   g34_neg "34n6: restoring the two-key-only Step 8 shape fails the group" " w_old " wf \
     'a JSON object whose string keys `completion_notes` and `completion_summary` hold' 'a JSON object with exactly two string keys, `completion_notes` and `completion_summary`, hold'
   g34_neg "34n7: restoring the word-splitting after_goal PATCH fails the group" " a_old " wf \
@@ -9592,6 +9602,293 @@ fi
     "$(cksum < "$HOOK_SCRIPT") $(cksum < "$G38_GATE")"
 else
   echo "  SKIP: Test Group 38 (the gate, the README, the changelog or jq is missing)"
+fi
+
+
+# ============================================================================
+# Test Group 39: D411 -- the completion and after_goal blocks read their files
+# from one absolute project root, and the changed-files snapshot is checked
+# ============================================================================
+# The after_goal Detect block in both skills read
+# ${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json, so with the
+# variable unset it read a file under the caller's cwd while the completion
+# block's `| tee` wrote one under the .stride.md root. The completion block read
+# the changed-files snapshot with `--argjson cf "$(cat ... || echo '[]')"`, so an
+# empty, truncated or non-array file failed jq mid-command (an empty body was
+# sent) or sent the wrong shape; and its root was never made absolute, so a
+# relative project variable named one directory before its `cd` and another
+# after it (D410's runner saw the empty body). 34k5-34k10 had no break-it.
+# 39a runs the EXTRACTED completion block from a nested subdirectory with curl
+# stubbed to answer with an after_goal response, then each skill's EXTRACTED
+# Detect block from the same subdirectory beside a decoy capture; 39b does it
+# with relative variables; 39c-39c2 show a relative CODEX_PROJECT_DIR builds
+# the full body and that the cf read and tee follow the root the cd went to;
+# 39d feeds five broken snapshots and 39d2 two symlinked ones, and 39e a
+# missing and a valid one; 39e3-39e4 run the documented after_doing capture
+# line from a subdirectory, with a working and a missing capture script; 39f-39g
+# run Detect with no capture beside a stale shared-temp response and 1a with no
+# root; 39s sweeps every shell fence in every plugin .md but the changelog for a
+# read of either file that is not "$ROOT/"-rooted; 39p pins the Detect and 1a
+# root lines byte-identical to the completion block's and the changelog entry;
+# 39n1-39n5 break copies of this task's own guards; 39k5-39k10
+# break the guard each of 34k5-34k10 pins and run that check's own scenario
+# (34k9 now runs from outside the tree, since from a subdirectory the walk-up
+# found the root and the CODEX_PROJECT_DIR term could be deleted unnoticed);
+# 39z shows the real files were never written. The task's named unit tests keep
+# their testing_strategy names, prefixed with their Group 39 id. Reuses Group
+# 34's g34_fence and G34_VALID.
+# What this does NOT prove: what directory a live Codex CLI shell starts in, or
+# that an agent runs the blocks unedited (no Codex CLI here).
+echo ""
+echo "=== Test Group 39: completion and after_goal files are read from one absolute project root; the snapshot is checked (D411) ==="
+
+G39_CT="$PORT_ROOT/skills/stride-completing-tasks/SKILL.md"
+G39_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G39_CL="$PORT_ROOT/CHANGELOG.md"
+G39_RM="$PORT_ROOT/README.md"
+G39_AG="$PORT_ROOT/AGENTS.md"
+if [ -f "$G39_CT" ] && [ -f "$G39_WF" ] && [ -f "$G39_CL" ] && [ -f "$G39_RM" ] && [ -f "$G39_AG" ] \
+   && command -v jq >/dev/null 2>&1; then
+  G39_SUM_BEFORE="$(cksum < "$G39_CT") $(cksum < "$G39_WF") $(cksum < "$G39_CL") $(cksum < "$G39_RM") $(cksum < "$G39_AG")"
+  G39_X="$TMPDIR_TEST/g39 dir"
+  rm -rf "$G39_X"; mkdir -p "$G39_X/proj/.stride" "$G39_X/proj/sub/deep" "$G39_X/outside" "$G39_X/tmp"
+  G39_D="$G39_X/proj"; : > "$G39_D/.stride.md"
+  G39_DP=$(cd "$G39_D" && pwd -P)
+  G39_OCF="$G39_D/.stride/.outcomes-D9.json"
+  G39_CFF="$G39_D/.stride-changed-files.json"
+  G39_REFUSE='changed-files snapshot is a symlink or not one JSON array: not submitting (re-run the capture, or delete the file to send [])'
+  G39_RESPONSE='{"data":{"id":9,"identifier":"D9"},"hooks":[{"name":"after_goal","hook":{"timeout":60000,"env":{"GOAL_ID":"77","GOAL_IDENTIFIER":"G77"}}}]}'
+  G39_DECOY='{"data":{"id":9},"hooks":[{"name":"after_goal","hook":{"env":{"GOAL_ID":"11","GOAL_IDENTIFIER":"G11"}}}]}'
+  G39_BLK=$(g34_fence "$G39_CT" '## API Request Format')
+  G39_DCT=$(g34_fence "$G39_CT" '1. **Detect (read the canonical file, not your context)**')
+  G39_DWF=$(g34_fence "$G39_WF" '1. **Detect (read the canonical file, not your context)**')
+  G39_ACT=$(g34_fence "$G39_CT" '**1a. Fresh-GET fallback')
+  G39_AWF=$(g34_fence "$G39_WF" '**1a. Fresh-GET fallback')
+  # g39_cap <fence>: the documented capture command, `bash -c '...` through its closing `true'`
+  g39_cap() { printf '%s\n' "$1" | awk "/^bash -c '/{f=1} f; f && /true'\$/{exit}"; }
+  G39_CAP1=$(g39_cap "$(g34_fence "$G39_CT" 'A minimal Codex-friendly `## after_doing` looks like:')")
+  G39_CAP2=$(g39_cap "$(g34_fence "$G39_CT" '**Copy-pasteable `## after_doing` block.**')")
+  g39_oc() { printf '%s\n' '{"completion_notes":"x","completion_summary":"y"}' > "$G39_OCF"; }
+  # g39_api <block> <cwd> [VAR=value...]: run an example block with its two
+  # placeholder lines filled (D9 / 9), no project variable unless one is given,
+  # curl stubbed to write its -d body to BODY, touch CURLED and answer with
+  # G39_RESPONSE; stderr goes to ERR; returns the block's exit status
+  g39_api() {
+    local b="$1" cwd="$2"; shift 2
+    [ $# -gt 0 ] || set -- G39_NOROOT=1
+    b=${b/"OC_IDENT='<identifier>'"/"OC_IDENT='${G39_IDENT-D9}'"}
+    b=${b/"OC_ID='<numeric id>'"/"OC_ID='9'"}
+    rm -f "$G39_D/CURLED" "$G39_D/BODY" "$G39_D/ERR" "$G39_D/.stride/.last-api-response.json"
+    ( cd "$cwd" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH \
+        "$@" G39_D="$G39_D" G39_RESPONSE="$G39_RESPONSE" \
+        STRIDE_API_URL='http://stub.invalid' STRIDE_API_TOKEN='stub' TASK_ID=1 bash -c '
+      curl() { while [ $# -gt 0 ]; do [ "$1" = -d ] && { printf "%s" "$2" > "$G39_D/BODY"; : > "$G39_D/CURLED"; }; shift; done; printf "%s\n" "$G39_RESPONSE"; }
+      '"$b" >/dev/null 2>"$G39_D/ERR" )
+  }
+  g39_sent() { [ -e "$G39_D/CURLED" ] && echo present || echo absent; }
+  # g39_detect <block> <cwd> [VAR=value]: run a Detect block; prints PAYLOAD_SRC|GOAL_ID
+  g39_detect() {
+    ( cd "$2" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH \
+        "${3:-G39_NOROOT=1}" TMPDIR="$G39_X/tmp" bash -c "$1"'
+      printf "%s|%s" "$PAYLOAD_SRC" "${GOAL_ID:-none}"' 2>/dev/null )
+  }
+  # g39_mut <block> <old> <new>: the block with the first old replaced, or MISSING
+  g39_mut() {
+    local m=${1/"$2"/"$3"}
+    if [ "$m" = "$1" ]; then echo MISSING; else printf '%s' "$m"; fi
+  }
+  # g39_roots <block>: the root lines, ROOT= through the canonicalise line
+  g39_roots() {
+    printf '%s\n' "$1" | awk 'index($0, "ROOT=\"${CODEX_PROJECT_DIR") == 1 {f=1} f; f && index($0, "[ -n \"$ROOT\" ] && ROOT=") == 1 {exit}'
+  }
+
+  # 39a: completion tee and Detect read, both from a nested subdirectory
+  g39_oc; rm -f "$G39_CFF"
+  for l in "ct|$G39_DCT" "wf|$G39_DWF"; do
+    g39_api "$G39_BLK" "$G39_D/sub/deep"
+    mkdir -p "$G39_D/sub/deep/.stride"; printf '%s\n' "$G39_DECOY" > "$G39_D/sub/deep/.stride/.last-api-response.json"
+    assert_eq "39a (${l%%|*}): Group 39: the after_goal Detect block run from a subdirectory reads .last-api-response.json under the project root" \
+      "present|$G39_DP/.stride/.last-api-response.json|77" \
+      "$(g39_sent)|$(g39_detect "${l#*|}" "$G39_D/sub/deep")"
+    assert_eq "39b (${l%%|*}): Group 39: with a relative CLAUDE_PROJECT_DIR, or CODEX_PROJECT_DIR from outside the tree, Detect still reads the root's file" \
+      "$G39_DP/.stride/.last-api-response.json|77 $G39_DP/.stride/.last-api-response.json|77" \
+      "$(g39_detect "${l#*|}" "$G39_X" CLAUDE_PROJECT_DIR=proj) $(g39_detect "${l#*|}" "$G39_X/outside" "CODEX_PROJECT_DIR=$G39_D")"
+    rm -rf "$G39_D/sub/deep/.stride"
+  done
+
+  # 39c: a relative CODEX_PROJECT_DIR (D410's empty body) builds the full body
+  g39_api "$G39_BLK" "$G39_X" CODEX_PROJECT_DIR=proj
+  assert_eq "39c: Group 39: a relative CODEX_PROJECT_DIR names the same root before and after the cd, so the body carries the file's notes and the tee lands at the root" \
+    "true|present" \
+    "$(jq '.completion_notes == "x" and .changed_files == []' "$G39_D/BODY" 2>/dev/null)|$([ -s "$G39_D/.stride/.last-api-response.json" ] && echo present || echo absent)"
+  # 39c2: the two variables naming different roots: everything follows the cd
+  mkdir -p "$G39_X/other/.stride"; printf '%s\n' '["other.ex"]' > "$G39_X/other/.stride-changed-files.json"
+  printf '%s\n' '["root.ex"]' > "$G39_CFF"
+  g39_api "$G39_BLK" "$G39_X/outside" "CODEX_PROJECT_DIR=$G39_D" "CLAUDE_PROJECT_DIR=$G39_X/other"
+  assert_eq "39c2: Group 39: with CODEX_PROJECT_DIR and CLAUDE_PROJECT_DIR naming different directories, the snapshot read and the tee follow CODEX_PROJECT_DIR's root, where the cd went" \
+    "true|present|absent" \
+    "$(jq -c '.changed_files == ["root.ex"]' "$G39_D/BODY" 2>/dev/null)|$([ -s "$G39_D/.stride/.last-api-response.json" ] && echo present || echo absent)|$([ -e "$G39_X/other/.stride/.last-api-response.json" ] && echo present || echo absent)"
+  rm -rf "$G39_X/other"
+
+  # 39d: a snapshot that is present but not one JSON array
+  for c in 'object|{"path":"a.ex"}' 'empty|' 'truncated|[{"path":"a.ex","diff":"x' 'two|[] []' 'string|"a.ex"'; do
+    printf '%s' "${c#*|}" > "$G39_CFF"
+    g39_api "$G39_BLK" "$G39_D/sub/deep"; G39_RC=$?
+    assert_eq "39d (${c%%|*}): Group 39: the completion block refuses to send when .stride-changed-files.json is not a JSON array and says so on one line" \
+      "absent|nonzero|1|$G39_REFUSE" \
+      "$(g39_sent)|$([ "$G39_RC" -ne 0 ] && echo nonzero || echo zero)|$(wc -l < "$G39_D/ERR" | tr -d ' ')|$(cat "$G39_D/ERR")"
+  done
+
+  # 39e: missing and valid snapshots
+  rm -f "$G39_CFF"
+  g39_api "$G39_BLK" "$G39_D/sub/deep"; G39_RC=$?
+  assert_eq "39e: Group 39: a missing .stride-changed-files.json still sends changed_files as []" \
+    "present|0|true" "$(g39_sent)|$G39_RC|$(jq -c '.changed_files == []' "$G39_D/BODY" 2>/dev/null)"
+  printf '%s\n' '[{"path":"lib/a.ex","diff":"--- a\n+++ b\n"}]' > "$G39_CFF"
+  g39_api "$G39_BLK" "$G39_D/sub/deep"
+  assert_eq "39e2: Group 39: a valid snapshot is sent unchanged, so 39d's refusals could have passed" \
+    "present|true" "$(g39_sent)|$(jq -c --slurpfile cf "$G39_CFF" '.changed_files == $cf[0]' "$G39_D/BODY" 2>/dev/null)"
+  rm -f "$G39_CFF"
+
+  # 39d2: a symlinked snapshot, dangling or pointing outside the tree
+  printf '%s\n' '["outside.ex"]' > "$G39_X/outside/other.json"
+  for c in "dangling|$G39_X/missing.json" "outside|$G39_X/outside/other.json"; do
+    rm -f "$G39_CFF"; ln -s "${c#*|}" "$G39_CFF"
+    g39_api "$G39_BLK" "$G39_D/sub/deep"; G39_RC=$?
+    assert_eq "39d2 (${c%%|*}): Group 39: a symlinked .stride-changed-files.json is refused on the one line, never sent as [] or as a file from outside the tree" \
+      "absent|nonzero|$G39_REFUSE" "$(g39_sent)|$([ "$G39_RC" -ne 0 ] && echo nonzero || echo zero)|$(cat "$G39_D/ERR")"
+  done
+  rm -f "$G39_CFF"
+
+  # 39e3-39e4: the documented after_doing capture command, from a subdirectory
+  printf '%s\n' 'capture_changed_files() { printf "%s\n" "[{\"path\":\"cap.ex\",\"diff\":\"d\"}]"; }' > "$G39_X/cap.sh"
+  g39_runcap() { # <cwd> <CAPTURE_SCRIPT>
+    ( cd "$1" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH CAPTURE_SCRIPT="$2" bash -c "$G39_CAP1" >/dev/null 2>&1 )
+  }
+  g39_runcap "$G39_D/sub/deep" "$G39_X/cap.sh"; g39_api "$G39_BLK" "$G39_D/sub/deep"
+  assert_eq "39e3: Group 39: the documented capture command run from a subdirectory writes the snapshot at the root, where the completion block reads it, and leaves no temporary file" \
+    "same|present|true|absent|absent" \
+    "$([ -n "$G39_CAP1" ] && [ "$G39_CAP1" = "$G39_CAP2" ] && echo same || echo differ)|$(g39_sent)|$(jq -c '.changed_files == [{"path":"cap.ex","diff":"d"}]' "$G39_D/BODY" 2>/dev/null)|$([ -e "$G39_D/sub/deep/.stride-changed-files.json" ] && echo present || echo absent)|$([ -e "$G39_CFF.tmp" ] && echo present || echo absent)"
+  g39_runcap "$G39_D/sub/deep" "$G39_X/no-such-capture.sh"; g39_api "$G39_BLK" "$G39_D/sub/deep"
+  assert_eq "39e4: Group 39: with the capture script missing it removes the previous snapshot, so the completion sends [] rather than a stale or empty file" \
+    "absent|present|true" \
+    "$([ -e "$G39_CFF" ] && echo present || echo absent)|$(g39_sent)|$(jq -c '.changed_files == []' "$G39_D/BODY" 2>/dev/null)"
+
+  # 39f: Detect with no capture never adopts a stale shared-temp response
+  rm -f "$G39_D/.stride/.last-api-response.json" "$G39_D/.stride/.in-context-response.json"
+  printf '%s\n' "$G39_DECOY" > "$G39_X/tmp/stride-in-context-response.json"
+  for l in "ct|$G39_DCT" "wf|$G39_DWF"; do
+    G39_DOUT=$(cd "$G39_D/sub/deep" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH TMPDIR="$G39_X/tmp" bash -c "${l#*|}"'
+      printf "%s|%s" "$PAYLOAD_SRC" "${GOAL_ID:-none}"' 2>"$G39_X/derr")
+    assert_eq "39f (${l%%|*}): Group 39: with no capture under the root, Detect says so on stderr and reads only the root's own in-context file, never a stale shared-temp response" \
+      "$G39_DP/.stride/.in-context-response.json|none|1" \
+      "$G39_DOUT|$(grep -c 'no usable capture under the project root' "$G39_X/derr")"
+  done
+  # 39g: 1a with no project root makes no request
+  for l in "ct|$G39_ACT" "wf|$G39_AWF"; do
+    rm -f "$G39_X/CURLED1A"
+    ( cd "$G39_X/outside" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH G39_X="$G39_X" bash -c '
+      curl() { : > "$G39_X/CURLED1A"; }
+      '"${l#*|}" >/dev/null 2>"$G39_X/aerr" )
+    assert_eq "39g (${l%%|*}): Group 39: the 1a fresh GET with no project root says so and sends no request" \
+      "absent|1" "$([ -e "$G39_X/CURLED1A" ] && echo present || echo absent)|$(grep -c 'no project root found' "$G39_X/aerr")"
+  done
+
+  # 39s: every shell fence in every plugin .md but the changelog reads both files from $ROOT/
+  read -r -d '' G39_SWEEP <<'G39EOF'
+FNR == 1 { inb = 0 }
+inb == 0 && /^[[:space:]]*```/ {
+  lang = $0; sub(/^[[:space:]]*```+/, "", lang); sub(/[[:space:]].*$/, "", lang)
+  inb = 1; shellish = (lang ~ /^(bash|sh|shell|zsh|console)?$/); next
+}
+inb == 1 && /^[[:space:]]*```/ { inb = 0; next }
+inb == 1 && shellish && $0 !~ /^[[:space:]]*#/ {
+  s = $0
+  while (match(s, /[^[:space:]"'(]*\.stride(-changed-files\.json|\/\.last-api-response\.json)/)) {
+    t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+    if (t !~ /^\$ROOT\/\.stride(-changed-files\.json|\/\.last-api-response\.json)$/) print "BAD " FILENAME ":" FNR
+  }
+}
+G39EOF
+  g39_sweep() { find "$1" -name '*.md' -not -path '*/.git/*' -not -name CHANGELOG.md -print0 | xargs -0 awk "$G39_SWEEP" | grep -c '^BAD '; }
+  mkdir -p "$G39_X/port"; cp -R "$PORT_ROOT/skills" "$PORT_ROOT/README.md" "$PORT_ROOT/AGENTS.md" "$G39_X/port/"
+  [ -d "$PORT_ROOT/docs" ] && cp -R "$PORT_ROOT/docs" "$G39_X/port/"
+  G39_SW_REAL=$(g39_sweep "$PORT_ROOT")
+  printf '\n```bash\ncat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json"\njq . .stride/.last-api-response.json\n```\n' >> "$G39_X/port/skills/stride-workflow/SKILL.md"
+  assert_eq "39s: Group 39: no shell fence in the plugin's markdown reads .last-api-response.json or .stride-changed-files.json from anywhere but \$ROOT/, and a planted relative read in a copy is caught" \
+    "0 2" "$G39_SW_REAL $(g39_sweep "$G39_X/port")"
+
+  # 39p: the Detect root lines are the completion block's, and the changelog entry
+  G39_RB=$(g39_roots "$G39_BLK")
+  assert_eq "39p: Group 39: both Detect blocks and both 1a blocks carry the completion block's root lines byte for byte, and no skill, README or AGENTS line reads .last-api-response.json from \${CLAUDE_PROJECT_DIR:-.}" \
+    "yes yes yes yes yes 0" \
+    "$([ "$(printf '%s\n' "$G39_RB" | wc -l | tr -d ' ')" = 10 ] && echo yes || echo no) $([ "$(g39_roots "$G39_DCT")" = "$G39_RB" ] && echo yes || echo no) $([ "$(g39_roots "$G39_DWF")" = "$G39_RB" ] && echo yes || echo no) $([ "$(g39_roots "$G39_ACT")" = "$G39_RB" ] && echo yes || echo no) $([ "$(g39_roots "$G39_AWF")" = "$G39_RB" ] && echo yes || echo no) $(cat "$PORT_ROOT"/skills/*/SKILL.md "$G39_RM" "$G39_AG" | grep -cF 'CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json')"
+  assert_eq "39p2: Group 39: the completion block states the snapshot refusal once, and the changelog carries this entry once under [Unreleased]" \
+    "1 1" \
+    "$(printf '%s\n' "$G39_BLK" | grep -cF "  echo '$G39_REFUSE' >&2; false") $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G39_CL" | grep -c '^### Fixed — .*(D411)$')"
+
+  # 39n: break-it on copies of this task's own guards
+  g39_oc
+  printf '%s\n' "$G39_DECOY" > "$G39_X/decoy.json"
+  G39_M=$(g39_mut "$G39_DCT" 'RESP="$ROOT/.stride/.last-api-response.json"' 'RESP="${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"')
+  g39_api "$G39_BLK" "$G39_D/sub/deep"
+  mkdir -p "$G39_D/sub/deep/.stride"; cp "$G39_X/decoy.json" "$G39_D/sub/deep/.stride/.last-api-response.json"
+  assert_eq "39n1: Group 39: break-it - restoring the \${CLAUDE_PROJECT_DIR:-.} read makes Detect read the subdirectory's decoy, so 39a catches it" \
+    "11" "$(g39_detect "$G39_M" "$G39_D/sub/deep" | sed 's/.*|//')"
+  rm -rf "$G39_D/sub/deep/.stride"
+  printf '%s' '{"path":"a.ex"}' > "$G39_CFF"
+  G39_M=$(g39_mut "$G39_BLK" 'elif [ -L "$CF" ] || { [ -e "$CF" ] && ! CF_JSON=' 'elif false && { ! CF_JSON=')
+  g39_api "$G39_M" "$G39_D/sub/deep"
+  assert_eq "39n2: Group 39: break-it - without the snapshot check an object snapshot is sent, so 39d catches it" "present" "$(g39_sent)"
+  rm -f "$G39_CFF"; ln -s "$G39_X/outside/other.json" "$G39_CFF"
+  G39_M=$(g39_mut "$G39_BLK" 'elif [ -L "$CF" ] || {' 'elif {')
+  g39_api "$G39_M" "$G39_D/sub/deep"
+  assert_eq "39n4: Group 39: break-it - without the symlink test a snapshot linked from outside the tree is sent, so 39d2 catches it" \
+    "present|true" "$(g39_sent)|$(jq -c '.changed_files == ["outside.ex"]' "$G39_D/BODY" 2>/dev/null)"
+  rm -f "$G39_CFF"
+  G39_M=$(g39_mut "$G39_DCT" '  [ -n "$ROOT" ] && PAYLOAD_SRC="$ROOT/.stride/.in-context-response.json"' '  PAYLOAD_SRC="${TMPDIR:-/tmp}/stride-in-context-response.json"')
+  rm -f "$G39_D/.stride/.last-api-response.json"
+  assert_eq "39n5: Group 39: break-it - restoring the shared-temp fallback makes Detect adopt the stale response's goal, so 39f catches it" \
+    "11" "$(g39_detect "$G39_M" "$G39_D/sub/deep" | sed 's/.*|//')"
+  G39_M=$(g39_mut "$G39_BLK" '[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"' ':')
+  g39_api "$G39_M" "$G39_X" CODEX_PROJECT_DIR=proj
+  assert_eq "39n3: Group 39: break-it - without the absolute root a relative CODEX_PROJECT_DIR sends a body without the file's notes, so 39c catches it" \
+    "present|false" "$(g39_sent)|$(jq -e '.completion_notes == "x"' "$G39_D/BODY" >/dev/null 2>&1 && echo true || echo false)"
+
+  # 39k: break the guard each of 34k5-34k10 pins, in that check's own scenario.
+  # g39_k <id> <what> <expected real> <expected broken> <block> <cwd> [VAR=value...]
+  g39_k() {
+    local id="$1" what="$2" want="$3" broke="$4" blk="$5" cwd="$6" got; shift 6
+    g39_api "$G39_BLK" "$cwd" "$@"; got="$(g39_sent)"
+    if [ "$blk" = MISSING ]; then got="$got MISSING"; else g39_api "$blk" "$cwd" "$@"; got="$got $(g39_sent)"; fi
+    assert_eq "39$id: Group 39: break-it for each of 34k5-34k10 - mutating the guard it pins makes that check fail (34$id: $what)" "$want $broke" "$got"
+  }
+  : > "$G39_OCF"
+  g39_k k5 "without the malformed-file check an empty notes file is sent" absent present \
+    "$(g39_mut "$G39_BLK" "$G34_VALID" '   || false; then')" "$G39_D"
+  printf '%s\n' '{"completion_notes":5,"completion_summary":"y"}' > "$G39_OCF"
+  g39_k k6 "without the notes type test a numeric notes value is sent" absent present \
+    "$(g39_mut "$G39_BLK" ' and (.[0].completion_notes | type) == "string"' '')" "$G39_D"
+  printf '%s\n%s\n' '{"completion_notes":"x","completion_summary":"y"}' '{"completion_notes":"z","completion_summary":"w"}' > "$G39_OCF"
+  g39_k k7 "without length == 1 a file holding two objects is sent" absent present \
+    "$(g39_mut "$G39_BLK" 'length == 1 and (.[0] | type) == "object"' '(.[0] | type) == "object"')" "$G39_D"
+  g39_oc
+  g39_k k8 "without the .stride.md walk-up a subdirectory run finds no root" present absent \
+    "$(g39_mut "$G39_BLK" '[ -f "$d/.stride.md" ] && { ROOT=$d; break; }' ':')" "$G39_D/sub/deep"
+  g39_k k9 "without the CODEX_PROJECT_DIR term a run from outside the tree finds no root" present absent \
+    "$(g39_mut "$G39_BLK" 'ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"' 'ROOT="${CLAUDE_PROJECT_DIR:-}"')" "$G39_X/outside" "CODEX_PROJECT_DIR=$G39_D"
+  mkdir -p "$G39_D/.stride/.outcomes-D9"; cp "$G39_OCF" "$G39_D/.stride/x.json"
+  G39_IDENT='D9/../x'
+  g39_k k10 "without the identifier sanitiser a dot-dot stem reaches another file" absent present \
+    "$(g39_mut "$G39_BLK" "case \"\$OC_IDENT\" in ''|*[!A-Za-z0-9_-]*) OC_IDENT='' ;; esac" ':')" "$G39_D"
+  unset G39_IDENT
+  rmdir "$G39_D/.stride/.outcomes-D9"; rm -f "$G39_D/.stride/x.json"
+
+  rm -rf "$G39_X"
+  assert_eq "39z: the break-it cases left the real files untouched" "$G39_SUM_BEFORE" \
+    "$(cksum < "$G39_CT") $(cksum < "$G39_WF") $(cksum < "$G39_CL") $(cksum < "$G39_RM") $(cksum < "$G39_AG")"
+else
+  echo "  SKIP: Test Group 39 (a skill, the README, AGENTS.md, the changelog or jq is missing)"
 fi
 
 echo ""
