@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.43.0] - 2026-11-10
+
+This release ports stride's G503 Step 5.5 work, which upstream shipped in its 1.87.0, into this edition's Step 6.5: charters built from manual tests, edge cases and change risk; a confirmed `.exploratory.md` and a probe harness for signed-in targets; an outcome line and an owner for every charter, checked by `exploratory_outcomes_ok`; a goal-scope pass on a goal's last open child; and charter-ready manual tests at task authoring. The five commits since 1.42.0 are W2679 (stride's W2582, `748cc9b`), W2680 (W2583, `4c739de`), W2681 (W2585, `6f810df`), W2682 (W2586, `712fd99`) and W2683 (W2587, `eaa275d`). Nothing in this release has been run in a live Codex CLI session: every change is pinned by `hooks/test-stride-hook.sh` (Test Groups 27 to 31), and the live check each task planned was handed back, because no Codex CLI was available where the port was done.
+
+The release commit bumps `.codex-plugin/plugin.json` to 1.43.0 and keeps an empty `[Unreleased]` heading first, as 1.42.0 did; Groups 23h and 24j pin that `[Unreleased]` is the first section. Groups 29j, 30j and 31g read their entry from the lines between `[Unreleased]` and `[1.42.0]` rather than from `[Unreleased]` alone, so they still find it under this heading; their checks are otherwise unchanged, and 27g's and 28h's labels now name the same range. The release's goal-scope exploratory pass found `stride-subagent-workflow` Phase 3.5's goal-scope paragraph missing three rules its Step 6.5 twin states (the unusable-fence fallback, the about-five cap ordered highest-risk first, and a failed `claimed_at` or sibling-id check making that repository's change set undeterminable); the paragraph now states them, and new check **30o** pins each once.
+
 ### Changed — Task authoring writes charter-ready manual tests and lens-driven edge cases (W2683)
 
 Ports stride's W2587 (commit `1db0f72`) into `stride-creating-tasks`, `stride-creating-goals`, `agents/task-decomposer.md` and `agents/task-enricher.md`. Where `stride-exploratory-testing`'s `docs/porting-g503.md` and that commit differ, the commit was followed.
@@ -83,6 +89,23 @@ Ports stride's W2582 (commit `b80107d`) into `stride-workflow` Step 6.5 and its 
 - Hook-suite **Group 27** pins each rule once per twin. It proves it can fail by checking mutated copies, among them removing the `edge_cases` gate, and pins the sibling charter-generator's contract. **24k** now pins the two-surface sentence.
 
 Not verified in a live Codex CLI run, since none was available here. No server, API or task-field change.
+
+### Not carried by this edition
+
+Each item is listed so a reader can tell a deliberate omission from an oversight.
+
+- **W2584's main-loop visual pass** (stride `f756394`). Upstream's main loop runs a bounded visual pass of its own when an explorer session ends `no_observation_surface`. This edition's Step 6.5 defines no main-loop browser surface: the explorer holds `read`, `search`, `glob` and `shell`, and a browser the main loop holds does not reach a dispatched agent. So a session that ends `no_observation_surface` stays handed back for the part it did not observe, a generator charter whose `surface` is `browser` is handed back undispatched (W2679), and the `Visual pass` line format is documented in `stride-completing-tasks` and never written (W2681).
+- **W2583's task-runner `exploratory_env`.** stride-codex has no task-runner agent and no dispatcher mode, so the `probe_harness`, `probe_services` and `probe_dir` fields, their 1,400-byte cap and Group 58's template size cap have no counterpart here. The same absence drops W2585's runner-record `summary` clause and W2586's task-runner path.
+- **Upstream machinery this edition does not have.** Stride's 100,000-byte skill budget, and the trims W2585 and W2586 made to stay inside it, its relatedness gate and its one-follow-up-per-claim cap. Without the gate, a goal-scope finding in a sibling's lines is recorded and followed up rather than fixed in the task (W2682).
+- **W2588**'s measurements of the new Step 5.5 come from replaying a Claude Code goal, so nothing here claims a catch rate or a saving for this edition.
+
+### Known issues
+
+- **Three Group 29 gaps were recorded, not fixed, at W2681's review cap.** 29e4 does not pin Step 8's missing-file and symlink guards for the outcomes file; the break-it record for Group 29 omits most of its false-polarity fixtures; and Group 29's comments still give the old 29w9 range. The suite passes: these are gaps in what it proves, not failures.
+- **The completion example in `stride-completing-tasks` single-quotes its `--arg` values.** A note or summary holding a `'` would end the shell literal. The gap predates this release and was recorded as informational during W2681's security review; Step 8's own complete call reads those strings back from the outcomes file instead.
+- **The goal-scope trigger block and the Step 8 outcomes block do not resolve paths the way the rest of the skill does** (found by the release's goal-scope exploratory pass, run against scratch copies; not fixed in this release). The trigger finds `.stride/` and the auth file through `${CLAUDE_PROJECT_DIR:-.}` rather than the `.stride.md` walk-up, so from a nested repository's working directory it reads that repository's `.stride/`, can fetch the wrong goal's tree and leaves its `.goal-scope-*-tree.json` file where Step 8's cleanup never looks, and from any other directory it records `no task file`; it names the task file by identifier only, with no numeric-id fallback; and Step 8's outcomes block makes `exploratory_outcomes_ok` print `false` whenever the identifier falls back to the numeric id. A Stride identifier such as `W2684` is always a plain token, so the last two need a non-plain identifier to occur.
+- **Wording gaps the release's exploratory pass found and left open** (all read from source; none observed in a live Codex CLI). The goal-scope trigger block finds `.stride/` through `${CLAUDE_PROJECT_DIR:-.}`, unlike the report-path and Step 8 blocks; "Step 6.5 fired" means the two-condition gate in `stride-workflow` but a wider did-not-fire list in `stride-completing-tasks`; `docs/orchestrator-rationale.md` says a last open child whose Step 6.5 did not fire writes no not-run line, while both twins' catch-all says it writes one; `AGENTS.md` says role accounts reach the explorer as `PROBE_` lines, when only a probe harness does; the outcome and coverage lines carry no scope, so a task's own and goal-scope charters share one count; a dispatch sent no report path turns the whole check into `not run`; and neither twin's discovered-finding labels name *goal scope*. The outcome-line formats are stride's byte for byte, so the scope gap is shared with upstream.
+- **The sibling plugin's text predates this release.** stride-codex-exploratory-testing's `docs/project-environment.md` and its [0.4.0] entry still say stride-codex does not read `.exploratory.md` or send `PROBE_HARNESS`; since W2680 it does.
 
 ## [1.42.0] - 2026-11-09
 

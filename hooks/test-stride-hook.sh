@@ -5897,7 +5897,7 @@ if [ -f "$G27_WF" ] && [ -f "$G27_SW" ] && [ -f "$G27_DOC" ] && [ -f "$G27_CT" ]
     "$(grep -cF 'the task carries `manual_tests` or `edge_cases`.' "$G27_RM" | tr -d ' ') $(grep -cF 'the task carries `manual_tests` or `edge_cases`.' "$G27_AG" | tr -d ' ') $(grep -cF 'the task carries `manual_tests`.' "$G27_RM" | tr -d ' ') $(grep -cF 'the task carries `manual_tests`.' "$G27_AG" | tr -d ' ')"
   assert_eq "27g: stride-completing-tasks states the gate and its fallback with edge_cases" "1 1" \
     "$(grep -cF '`testing_strategy.manual_tests` **or** `edge_cases` array is **non-empty**' "$G27_CT" | tr -d ' ') $(grep -cF 'the task had neither `manual_tests` nor `edge_cases`' "$G27_CT" | tr -d ' ')"
-  assert_eq "27g: the changelog carries this entry once, inside [Unreleased]" "1 yes" \
+  assert_eq "27g: the changelog carries this entry once, between [Unreleased] and [1.42.0]" "1 yes" \
     "$(grep -c '^### Changed — .*(W2679)$' "$G27_CL" | tr -d ' ') $(awk '/^## \[Unreleased\]/{u=NR} /^### Changed — .*\(W2679\)$/{w=NR} /^## \[1\.42\.0\]/{r=NR} END{print (u && w && r && u < w && w < r) ? "yes" : "no"}' "$G27_CL")"
 
   # --- Break-it: each check above can fail. Mutated copies only. ---
@@ -6167,7 +6167,7 @@ if [ -f "$G28_WF" ] && [ -f "$G28_SW" ] && [ -f "$G28_DOC" ]; then
     "$(grep -cx '## Why a Signed-Out Session Is Not Coverage' "$G28_DOC" | tr -d ' ')"
   assert_eq "28h: README and AGENTS.md describe Step 0 reading .exploratory.md" "1 1" \
     "$(grep -cF 'Since W2680, Step 0 reads a `.exploratory.md`' "$G28_RM" | tr -d ' ') $(grep -cF 'Since W2680, Step 0 reads a `.exploratory.md`' "$G28_AG" | tr -d ' ')"
-  assert_eq "28h: the changelog carries this entry once, inside [Unreleased]" "1 yes" \
+  assert_eq "28h: the changelog carries this entry once, between [Unreleased] and [1.42.0]" "1 yes" \
     "$(grep -c '^### Changed — .*(W2680)$' "$G28_CL" | tr -d ' ') $(awk '/^## \[Unreleased\]/{u=NR} /^### Changed — .*\(W2680\)$/{w=NR} /^## \[1\.42\.0\]/{r=NR} END{print (u && w && r && u < w && w < r) ? "yes" : "no"}' "$G28_CL")"
   assert_eq "28h: the changelog entry says the task-runner exploratory_env part does not apply" "1" \
     "$(awk '/^### Changed — .*\(W2680\)$/{f=1; next} f && /^##/{exit} f' "$G28_CL" | grep -cF 'The task-runner `exploratory_env` part does not apply' | tr -d ' ')"
@@ -6454,8 +6454,8 @@ if [ -f "$G29_WF" ] && [ -f "$G29_SW" ] && [ -f "$G29_CT" ] && [ -f "$G29_DOC" ]
     "$(grep -cx '## Why Every Charter Needs a Record and an Owner' "$G29_DOC" | tr -d ' ') $(grep -cx '## Why Every Charter Needs a Record and an Owner' "$G29_CDOC" | tr -d ' ')"
   assert_eq "29j: README and AGENTS each describe the record once" "1 1" \
     "$(grep -oF 'Since W2681,' "$G29_RM" | wc -l | tr -d ' ') $(grep -oF 'Since W2681,' "$G29_AG" | wc -l | tr -d ' ')"
-  G29_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$G29_CL")
-  assert_eq "29j: CHANGELOG [Unreleased] carries one (W2681) entry, ahead of W2680" "1 yes" \
+  G29_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[1\.42\.0\]/{exit} f' "$G29_CL")
+  assert_eq "29j: CHANGELOG between [Unreleased] and [1.42.0] carries one (W2681) entry, ahead of W2680" "1 yes" \
     "$(printf '%s\n' "$G29_UNREL" | grep -c '^### Changed — .*(W2681)$' | tr -d ' ') $(printf '%s\n' "$G29_UNREL" | awk '/^### .*\(W2681\)$/{a=NR} /^### .*\(W2680\)$/{b=NR} END{print (a && b && a < b) ? "yes" : "no"}')"
   G29_ENTRY=$(printf '%s\n' "$G29_UNREL" | awk '/^### Changed — .*\(W2681\)$/{f=1; next} f && /^### /{exit} f')
   assert_eq "29j: the entry names what does not apply and the porting-doc differences once each" "1 1" \
@@ -6950,6 +6950,10 @@ if [ -f "$G30_WF" ] && [ -f "$G30_SW" ] && [ -f "$G30_DOC" ]; then
   g30_ok "30i: placement, the trigger block, the Decision Summary, cleanup and the flowcharts" w_ m_ c_ fl_
   assert_eq "30t: every goal-scope rule found exactly once in its section" "OK" "$G30_REAL"
 
+  # --- 30o: the Phase 3.5 twin carries Step 6.5's fence fallback, cap order and undeterminable rule (W2684) ---
+  assert_eq "30o: the Phase 3.5 twin states the unusable-fence fallback, the cap order and the undeterminable change set once each" "1 1 1" \
+    "$(grep -oF 'with no usable fence write the cross-task charters by hand' "$G30_SW" | wc -l | tr -d ' ') $(grep -oF 'cap the goal-scope charters at about five, highest-risk first' "$G30_SW" | wc -l | tr -d ' ') $(grep -oF "fails its check makes that repository's change set undeterminable" "$G30_SW" | wc -l | tr -d ' ')"
+
   # --- 30j: rationale, README, AGENTS and CHANGELOG ---
   assert_eq "30j: the rationale section exists once, in orchestrator-rationale.md and not completion-rationale.md" "1 0" \
     "$(grep -cx -- "$G30_RAT" "$G30_DOC" | tr -d ' ') $(grep -cx -- "$G30_RAT" "$G30_CDOC" 2>/dev/null | tr -d ' ')"
@@ -6960,8 +6964,8 @@ if [ -f "$G30_WF" ] && [ -f "$G30_SW" ] && [ -f "$G30_DOC" ]; then
     "$(grep -oF 'Since W2682,' "$G30_RM" | wc -l | tr -d ' ') $(grep -oF 'Since W2682,' "$G30_AG" | wc -l | tr -d ' ')"
   assert_eq "30j: README names the goal-scope pass on a goal's last open child" "1" \
     "$(grep -oF "Since W2682, when a task is its goal's last open child, Step 6.5 adds one goal-scope pass" "$G30_RM" | wc -l | tr -d ' ')"
-  G30_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$G30_CL")
-  assert_eq "30j: CHANGELOG [Unreleased] carries one (W2682) entry, ahead of W2681" "1 yes" \
+  G30_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[1\.42\.0\]/{exit} f' "$G30_CL")
+  assert_eq "30j: CHANGELOG between [Unreleased] and [1.42.0] carries one (W2682) entry, ahead of W2681" "1 yes" \
     "$(printf '%s\n' "$G30_UNREL" | grep -c '^### Changed — .*(W2682)$' | tr -d ' ') $(printf '%s\n' "$G30_UNREL" | awk '/^### .*\(W2682\)$/{a=NR} /^### .*\(W2681\)$/{b=NR} END{print (a && b && a < b) ? "yes" : "no"}')"
   G30_ENTRY=$(printf '%s\n' "$G30_UNREL" | awk '/^### Changed — .*\(W2682\)$/{f=1; next} f && /^### /{exit} f')
   assert_eq "30j: the entry names what does not apply and the porting-doc differences once each" "1 1" \
@@ -7349,8 +7353,8 @@ if [ -f "$G31_CT" ] && [ -f "$G31_GO" ] && [ -f "$G31_DE" ] && [ -f "$G31_EN" ];
     "$(grep -cx -- "$G31_RAT" "$G31_DOC" | tr -d ' ') $(grep -oF '`docs/orchestrator-rationale.md` § Why Task Authoring Writes Charters and Names Lenses' "$G31_WF" | wc -l | tr -d ' ')"
   assert_eq "31g: README and AGENTS each describe the rules once, and README no longer says the skills advise" "1 1 0" \
     "$(grep -oF 'Since W2683,' "$G31_RM" | wc -l | tr -d ' ') $(grep -oF 'Since W2683,' "$G31_AG" | wc -l | tr -d ' ') $(grep -cF 'advise phrasing' "$G31_RM" | tr -d ' ')"
-  G31_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$G31_CL")
-  assert_eq "31g: CHANGELOG [Unreleased] carries one (W2683) entry, ahead of W2682" "1 yes" \
+  G31_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[1\.42\.0\]/{exit} f' "$G31_CL")
+  assert_eq "31g: CHANGELOG between [Unreleased] and [1.42.0] carries one (W2683) entry, ahead of W2682" "1 yes" \
     "$(printf '%s\n' "$G31_UNREL" | grep -c '^### Changed — .*(W2683)$' | tr -d ' ') $(printf '%s\n' "$G31_UNREL" | awk '/^### .*\(W2683\)$/{a=NR} /^### .*\(W2682\)$/{b=NR} END{print (a && b && a < b) ? "yes" : "no"}')"
   G31_ENTRY=$(printf '%s\n' "$G31_UNREL" | awk '/^### Changed — .*\(W2683\)$/{f=1; next} f && /^### /{exit} f')
   assert_eq "31g: the entry names what does not apply and the porting-doc differences once each" "1 1" \

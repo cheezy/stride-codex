@@ -152,7 +152,7 @@ Tasks routinely carry `manual_tests` and `edge_cases` in their `testing_strategy
 
 *From `skills/stride-workflow/SKILL.md`, Step 6.5 (The goal-scope pass) and Step 9, and its `skills/stride-subagent-workflow/SKILL.md` Phase 3.5 twin.*
 
-**The miss.** Upstream stride found it in one of its own goals (W2586): several bugs lived between tasks rather than inside one — one child's staging against the plan state another set, against a third child's broadcast refresh — and every exploratory session was scoped to one task's change, so none was ever chartered at a seam.
+**The miss.** Upstream stride found it in one of its own goals, and fixed it in W2586: several bugs lived between tasks rather than inside one — one child's staging against the plan state another set, against a third child's broadcast refresh — and every exploratory session was scoped to one task's change, so none was ever chartered at a seam.
 
 **Why the last open child.** It is the one point where every sibling's change is in the tree and the goal is not yet closed, so a finding can still be recorded and owned under a claim. Reading the tree before completion, rather than waiting for the `after_goal` entry, keeps the pass inside the task: by the time `after_goal` fires there is no claim left. The trigger is the server's own last-child test, every other child `completed`, so the pass and `after_goal` agree on which task is last. A goal with one child has no seam between tasks, so it gets no pass.
 
