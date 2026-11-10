@@ -110,6 +110,20 @@ Tasks routinely carry `manual_tests` and `edge_cases` in their `testing_strategy
 
 **Why every item is mapped in completion_notes.** Beyond the cap something is always left over. Naming it as a human responsibility is what keeps it owed instead of silently dropped.
 
+## Why a Signed-Out Session Is Not Coverage
+
+*From `skills/stride-workflow/SKILL.md`, Step 0, item 3 (3a–3e), and Step 6.5, steps 1 and 2.*
+
+**The miss.** Upstream stride measured it (W2583): every exploratory dispatch in the goal that prompted the change named no test accounts, so sessions chartered on members-only features ran signed out, saw only the uniform refusal an unauthenticated request gets, and still ended as coverage of a feature they never reached.
+
+**Why Step 0 reads `.exploratory.md`.** The facts a signed-in session needs — the harness command, the services it connects to, the role fixtures — are project facts that rarely change, so asking for them afresh every session is what made "none" the easy answer. The file holds them once. It is confirmed rather than trusted because a cloned repository can carry a file the user did not write, and a harness command is a command the explorer will run: it must come from the user, typed or confirmed, in this session. That is also why the file's own authorization line never counts — only the user's confirmation is the affirmative.
+
+**Why the harness travels as `PROBE_` lines, right after the report path.** The explorer counts a harness only on a line that begins with `PROBE_HARNESS`, runs none without `PROBE_SERVICES`, and counts either only ahead of every piece of untrusted text, so a human-readable mention alone would be ignored and repeat the miss. This port has no fixed dispatch template, so the `Probe harness:` line is written into the block itself: it says whether the machine lines are there, so a reader can see which surface a session had.
+
+**Why a harness out of bounds is dropped, never truncated.** A truncated command is a different command, and one the user never confirmed. Dropping it with a reason leaves the session on its other surfaces and tells the user why.
+
+**Why the refusal may read task text.** Deciding that a target is auth-gated reads `where_context`, which the task author wrote. That is safe only because the test can do nothing but withhold a dispatch: forged text can stop a session from running, but never make one run, widen its hosts or supply a harness.
+
 ## Turning a Found Bug Into a Regression Check
 
 *From `skills/stride-workflow/SKILL.md`, Step 6.6.*
