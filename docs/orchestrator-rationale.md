@@ -148,6 +148,26 @@ Tasks routinely carry `manual_tests` and `edge_cases` in their `testing_strategy
 
 **What it does not prove.** It cannot judge a restatement's fidelity or its redaction, cannot see a charter whose report path and line were both left out, and checks an owner's identifier for form only. Those stay with the human reading the Review queue.
 
+## Why the Last Open Child Runs a Goal-Scope Pass
+
+*From `skills/stride-workflow/SKILL.md`, Step 6.5 (The goal-scope pass) and Step 9, and its `skills/stride-subagent-workflow/SKILL.md` Phase 3.5 twin.*
+
+**The miss.** Upstream stride found it in one of its own goals (W2586): several bugs lived between tasks rather than inside one — one child's staging against the plan state another set, against a third child's broadcast refresh — and every exploratory session was scoped to one task's change, so none was ever chartered at a seam.
+
+**Why the last open child.** It is the one point where every sibling's change is in the tree and the goal is not yet closed, so a finding can still be recorded and owned under a claim. Reading the tree before completion, rather than waiting for the `after_goal` entry, keeps the pass inside the task: by the time `after_goal` fires there is no claim left. The trigger is the server's own last-child test, every other child `completed`, so the pass and `after_goal` agree on which task is last. A goal with one child has no seam between tasks, so it gets no pass.
+
+**Why it never pushes or runs `after_goal`.** The pass is a look, not a release step. `after_goal` belongs to Step 9 and fires once, from the completion response; a pass that ran it, or pushed, could ship or announce a goal before its last task had been reviewed.
+
+**Why the change set is recovered per repository.** A goal's children often touch different repositories — the project and one or more nested plugin repositories — and this port's base-ref file holds one repository's base for one task. Taking each repository's last commit before the goal's earliest claim reads its base from that repository's own history, with nothing the earlier children had to leave behind. A repository with no commit before that time is undeterminable rather than wholly in scope, since a shallow clone looks exactly the same and would annex every file it holds.
+
+**Why `key_files` charter but never attribute.** `key_files` is author-written intent, not a record of what changed. It is good enough to tell the charter-generator which surfaces to put side by side, and never good enough to decide provenance — the same reason the provenance test refuses it as a fallback.
+
+**Why a sibling's defect is recorded, not blocked.** Stride fixes a related sibling finding in the task under its relatedness gate; this port has no relatedness gate, so a finding in a sibling's lines takes the Discovered branch: recorded at goal scope and followed up. The fail-closed block stays scoped to lines this task wrote, because sibling text is API-sourced and author-influenced, and nothing such text says may move a finding into a block.
+
+**What it costs.** Once per goal, not once per task: one slim tree read, one read per sibling, one more charter-generator dispatch, and up to about five more explorer sessions at the default budget — twelve probes and a sixty-call ceiling each in today's unit, so at most 60 probes and 300 tool calls in all. The sessions dominate.
+
+**What it does not prove.** A goal whose last finisher is approved from Review gets no pass: that sibling is still `in_progress` while this task runs. Two children worked concurrently can each see the other open, and then neither runs it. Unrelated commits inside the window widen the goal's changed lines, which moves a finding toward the record but never toward the block. Nothing proves the charter-generator honours the cross-task request, which is why the orchestrator's own cap enforces the count. A last open child whose own Step 6.5 does not fire runs no pass and writes no line. None of this was run in a live Codex CLI session.
+
 ## Turning a Found Bug Into a Regression Check
 
 *From `skills/stride-workflow/SKILL.md`, Step 6.6.*

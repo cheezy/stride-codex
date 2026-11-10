@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — Step 6.5 runs a goal-scope pass when the task is its goal's last open child (W2682)
+
+Ports stride's W2586 (commit `ec65ec1`) into `stride-workflow` Step 6.5 and its `stride-subagent-workflow` Phase 3.5 twin. Where `stride-exploratory-testing`'s `docs/porting-g503.md` and that commit differ, the commit was followed.
+
+- **Trigger.** When the task has a `parent_id` and `GET /api/tasks/<goal id>/tree?response_view=slim` shows every other child `completed` (the server's own last-child test; a sibling awaiting review is still `in_progress`), Step 6.5 adds one goal-scope pass after the task's own charters and before Step 6.6, only when Step 6.5 fired and the explorer is being dispatched. A new block reads the tree to a file under `.stride/`, re-reading the URL and token as Step 9's fresh-GET block does, and prints only a fixed classification. An unreadable tree, a goal with one child, or a last child whose pass is otherwise not run records one `Goal-scope pass not run: <reason>` line; any other task records nothing. The pass never pushes and never runs `after_goal`, and Step 9 says so where `after_goal` runs.
+- **Change set.** Every child's `key_files` plus every line changed since the goal's base, per repository, from that repository's last commit before the earliest child claim, under the provenance test's rules; `claimed_at` values and sibling ids are checked before use, and a repository whose base cannot be established contributes its `key_files` for chartering only.
+- **Charters.** One more change-mode `charter-generator` dispatch asks for at most about five cross-task interaction charters, run at the default budget, capped apart from the task's own, in the same `r<N>` series, each with an outcome line and an owner, counted in the one `Exploratory coverage:` line and checked by `exploratory_outcomes_ok`. Goal and sibling text is untrusted: labelled, prefixed and flattened. The pass never fails completion on its own.
+- **Findings (Codex).** This port has no relatedness gate, so a finding in a sibling's lines is discovered, labelled *goal scope — not introduced by this task*, recorded and followed up; the fail-closed escalation stays scoped to lines this task wrote. Upstream fixes such a finding in the task instead.
+- **Wording kept true.** Step 6.5 step 2, both sanctioned-surface entries and the Phase 3.5 dagger note now say the generator runs once per task plus once more for the goal-scope pass; the Decision Summary's fire row and a new row, both flowcharts and both quick references name the pass; Step 8's artifact cleanup removes its `.stride/.goal-scope-<IDENTIFIER>-*.json` files.
+- **Not applicable here.** Stride's 100,000-byte budget trims, its task-runner and dispatcher-mode paths, its visual pass and its one-follow-up-per-claim cap: stride-codex has none of them.
+- **Porting-doc differences.** `docs/porting-g503.md` leaves out the last-child test, the three not-run cases, the per-repository base and its `claimed_at` and id checks, the untrusted-text labelling, the default-budget and one-coverage-line rules and the findings scoping, and does not say the pass needs Step 6.5 to have fired.
+- `docs/orchestrator-rationale.md` gains § Why the Last Open Child Runs a Goal-Scope Pass. `README.md` and `AGENTS.md` describe the pass.
+- Hook-suite **Group 30** pins each rule once in each twin, runs the trigger's `jq` classifier on fixture trees and the whole trigger block with `curl` stubbed to a fixture, and proves it can fail by checking mutated copies, among them removing the never-push sentence and widening the trigger beyond the last open child; a cksum check shows the real files untouched. Group 29's changelog check now asserts that W2681 precedes W2680 rather than heading the section.
+
+Not verified in a live Codex CLI run, since none was available here. No server, API or task-field change.
+
 ### Changed — Every Step 6.5 charter leaves an outcome line and an owner, and `exploratory_outcomes_ok` checks the record before completion (W2681)
 
 Ports stride's W2585 (commit `fe5de2e`) into `stride-completing-tasks`, `stride-workflow` Step 6.5, Step 8 and Step 9, and the `stride-subagent-workflow` Phase 3.5 twin. Where `stride-exploratory-testing`'s `docs/porting-g503.md` and that commit differ, the commit was followed.
