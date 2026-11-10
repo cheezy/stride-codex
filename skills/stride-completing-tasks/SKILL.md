@@ -304,6 +304,8 @@ section below.
 ```bash
 OC_IDENT='<identifier>'
 OC_ID='<numeric id>'
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
 case "$OC_IDENT" in ''|*[!A-Za-z0-9_-]*) OC_IDENT='' ;; esac
 [ "${#OC_IDENT}" -le 64 ] || OC_IDENT=''
 case "$OC_ID" in ''|*[!0-9]*) OC_ID='' ;; esac
@@ -329,7 +331,7 @@ if [ -z "$ROOT" ] || [ -z "$OC_STEM" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROO
 elif [ -L "$CF" ] || { [ -e "$CF" ] && ! CF_JSON=$(jq -sce 'if length == 1 and (.[0] | type) == "array" then .[0] else error end' "$CF" 2>/dev/null); }; then
   echo 'changed-files snapshot is a symlink or not one JSON array: not submitting (re-run the capture, or delete the file to send [])' >&2; false
 else
-( cd "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
+( CDPATH= cd -- "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
   -H "Authorization: Bearer $STRIDE_API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(jq -n \

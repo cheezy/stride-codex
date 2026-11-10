@@ -90,8 +90,8 @@ command -v jq > /dev/null 2>&1 || exit 0
 #   .stride.md, though a `.cwd` spelled `//` is, and a `.cwd` of `/` with
 #   nothing found falls back to `/`.
 # - The found root is canonicalised with CDPATH cleared, so a CDPATH entry can
-#   never print a second path into the capture (the skills' goal-scope
-#   trigger does the same; their other root blocks do not clear CDPATH yet).
+#   never print a second path into the capture (every root block in the
+#   skills does the same, W2688).
 # - NO .stride.md anywhere above: the root is the event's `.cwd`, then ".",
 #   exactly as before D410. Unlike the skills, which then have no root and do
 #   nothing, the recorder must still write its record, and this never reaches

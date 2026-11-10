@@ -1715,9 +1715,10 @@ if [ -f "$G4_WF" ] && [ -f "$G4_CT" ] && [ -f "$G4_REV" ]; then
     "$(g4_has 'COUNTER="$ROOT/.stride/.review-rounds-$IDENT.json"' "$G4_WF")"
   # The TASK_ID fallback is allow-listed too -- an unchecked one would sidestep
   # the guard by using the field it skips.
-  # Four: the counter and the fix-path classifier (W2593) each carry the pair.
-  assert_eq "4q4: the identifier fallback is allow-listed, not trusted" "4" \
-    "$(grep -cF 'case "$IDENT" in *[!A-Za-z0-9_-]*|"")' "$G4_WF" || true)"
+  # Two each: the counter and the fix-path classifier (W2593) both allow-list
+  # the identifier and the digits-only id before the fallback (W2688's form).
+  assert_eq "4q4: the identifier fallback is allow-listed, not trusted" "2 2 2" \
+    "$(grep -cxF "case \"\$IDENT\" in ''|*[!A-Za-z0-9_-]*) IDENT='' ;; esac" "$G4_WF" || true) $(grep -cxF "case \"\$IDENT_ID\" in ''|*[!0-9]*) IDENT_ID='' ;; esac" "$G4_WF" || true) $(grep -cxF 'IDENT="${IDENT:-${IDENT_ID:-unknown}}"' "$G4_WF" || true)"
   # "A successful claim clears this counter" must be WIRED, not merely asserted:
   # a counter left behind makes a retry's first round count as the third.
   assert_eq "4q5: the claim step actually clears the counter" "yes" \
@@ -7928,6 +7929,23 @@ if [ -f "$G32_WF" ] && [ -f "$G32_SW" ] && [ -f "$G32_CL" ]; then
       fi
       return 0
     }
+    # g32_mut_after <label> <anchor> <old> <new>: as g32_mut on wf, but replace
+    # the first <old> AFTER the first line holding <anchor> (W2688 cleared
+    # CDPATH in earlier blocks too, so the first match is no longer this one)
+    g32_mut_after() {
+      G32_M="$G32_TMP/wf.md"; rm -f "$G32_M"
+      if G32_ANCHOR="$2" G27_OLD="$3" G27_NEW="$4" awk '
+          !a && index($0, ENVIRON["G32_ANCHOR"]) { a = 1 }
+          a && !done && (i = index($0, ENVIRON["G27_OLD"])) > 0 {
+            $0 = substr($0, 1, i - 1) ENVIRON["G27_NEW"] substr($0, i + length(ENVIRON["G27_OLD"])); done = 1
+          }
+          { print }
+          END { exit done ? 0 : 3 }' "$G32_WF" > "$G32_M"; then
+        return 0
+      fi
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+      return 1
+    }
     # g32_neg <label> <" id "> <wf|sw> <old> <new>: the mutated copy fails the check
     g32_neg() {
       local w="$G32_WF" s="$G32_SW"
@@ -7965,7 +7983,7 @@ if [ -f "$G32_WF" ] && [ -f "$G32_SW" ] && [ -f "$G32_CL" ]; then
       assert_eq "32n10: and the outcomes block without the check reads the non-digit file" \
         "exploratory_outcomes_ok: true" "$(g32_orun "$G32_M" '' 81a9 "$G32_U/lib")"
     fi
-    if g32_mut "32n11" wf 'ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"' 'ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"'; then
+    if g32_mut_after "32n11" "GS_IDENT='<identifier>'" 'ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"' 'ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"'; then
       assert_contains "32n11: canonicalising the root with CDPATH honoured fails the group" " r_cdpath " " $(g32_check "$G32_M" "$G32_SW") "
       assert_eq "32n11: and that block, under CDPATH with a relative root, says no task file" \
         "goal-scope trigger: no task file" "$(CDPATH=. g32_run "$G32_M" W1 '' "$G32_X" "$G32_X/last.json" proj)"
@@ -8480,7 +8498,7 @@ $frag")
   g34_once s_valid "$G34_VALID" "$api"
   g34_once s_merge_api "$G34_MERGE" "$api"
   g34_once s_merge_frag "$G34_MERGE" "$frag"
-  g34_once s_cd '( cd "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \' "$api"
+  g34_once s_cd '( CDPATH= cd -- "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \' "$api"
   g34_once s_false "  echo 'completion text file missing, malformed or a symlink: not submitting' >&2; false" "$api"
   [ "$(awk 'index($0, "A fragment, not a command — the `text` fence is deliberate:") { f = 1; next } f && NF { print; exit }' "$ct")" = '```text' ] \
     || G34_FAILS="$G34_FAILS s_frag_text"
@@ -8633,7 +8651,7 @@ Approved \n stays two characters.'
       "$(printf '%s' "$G34_BODY" | jq -c '.changed_files == ["root.ex"]' 2>/dev/null)|$([ -s "$G34_D/.stride/.last-api-response.json" ] && echo present || echo absent)|$([ -e "$G34_D/sub/deep/.stride/.last-api-response.json" ] && echo present || echo absent)|$(sed "s|^$G34_D/||" "$G34_D/PWD_AFTER" 2>/dev/null)"
     # D411 made the snapshot read and the tee absolute ($ROOT), so the cd alone
     # no longer decides where they land: the break restores all three
-    G34_PAT='( cd "$ROOT" && curl'; G34_NEW='( curl'
+    G34_PAT='( CDPATH= cd -- "$ROOT" && curl'; G34_NEW='( curl'
     G34_NOCD=${G34_BLK/"$G34_PAT"/"$G34_NEW"}
     G34_PAT='CF="$ROOT/.stride-changed-files.json"'; G34_NEW='CF="${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json"'
     G34_NOCD=${G34_NOCD/"$G34_PAT"/"$G34_NEW"}
@@ -9351,7 +9369,7 @@ if [ -f "$G37_WF" ] && [ -f "$G37_CT" ] && [ -f "$G37_CL" ] && command -v jq >/d
   g37_neg "37n11: break-it - dropping the empty-stem guard on the attachments line fails 37e" d_empty "$G37_CB" \
     '  [ -n "$TF_IDENT" ] && [ ! -L "$ROOT/.stride/attachments" ]' '  [ ! -L "$ROOT/.stride/attachments" ]'
   g37_neg "37n12: break-it - dropping the TF_IDENT allow-list fails the hostile-stem case" f_hostile "$G37_CB" \
-    'case "$TF_IDENT" in *[!A-Za-z0-9_-]*) TF_IDENT="" ;; esac' ':'
+    "case \"\$TF_IDENT\" in ''|*[!A-Za-z0-9_-]*) TF_IDENT='' ;; esac" ':'
   g37_neg "37n13: break-it - dropping the OC_IDENT allow-list fails the slash case" o_slash "$G37_OB" \
     "case \"\$OC_IDENT\" in ''|*[!A-Za-z0-9_-]*) OC_IDENT='' ;; esac" ':'
   g37_neg "37n14: break-it - dropping the OC_IDENT length cap fails the 65-character case" o_long "$G37_OB" \
@@ -9361,9 +9379,9 @@ if [ -f "$G37_WF" ] && [ -f "$G37_CT" ] && [ -f "$G37_CL" ] && command -v jq >/d
   g37_neg "37n16: break-it - dropping the OC_ID allow-list fails the non-digit case" o_iddigit "$G37_OB" \
     "case \"\$OC_ID\" in ''|*[!0-9]*) OC_ID='' ;; esac" ':'
   g37_neg "37n17: break-it - dropping the TF_IDENT length limit fails 37i" t_long "$G37_TB" \
-    '[ "${#TF_IDENT}" -le 64 ] || TF_IDENT=""' ':'
+    "[ \"\${#TF_IDENT}\" -le 64 ] || TF_IDENT=''" ':'
   g37_neg "37n18: break-it - dropping the TF_ID length limit fails 37i" t_idlong "$G37_TB" \
-    '[ "${#TF_ID}" -le 20 ] || TF_ID=""' ':'
+    "[ \"\${#TF_ID}\" -le 20 ] || TF_ID=''" ':'
 
   # --- 37p: the prose and the changelog ---
   assert_eq "37p: the exact-shape rule is stated once in Step 8 and once in the skill, and the changelog carries this entry once under [Unreleased]" "1 1 1" \
@@ -9889,6 +9907,363 @@ G39EOF
     "$(cksum < "$G39_CT") $(cksum < "$G39_WF") $(cksum < "$G39_CL") $(cksum < "$G39_RM") $(cksum < "$G39_AG")"
 else
   echo "  SKIP: Test Group 39 (a skill, the README, AGENTS.md, the changelog or jq is missing)"
+fi
+
+# ============================================================================
+# Test Group 40: W2688 -- one stem rule in every block, CDPATH cleared before
+# every cd in a shell fence, and Step 8's outcomes block exits 1 on false
+# ============================================================================
+# D404's runner left three hardening follow-ups: the stem blocks checked the
+# identifier and the numeric id with different caps (some had no 64-character
+# cap, some no 20-digit cap, and the env-based ones let TASK_ID through as any
+# [A-Za-z0-9_-] token); seven cds in stride-workflow and the completion cd in
+# stride-completing-tasks ran with CDPATH live, so a relative root could print a
+# CDPATH-resolved path into the capture; and Step 8's outcomes block printed
+# `exploratory_outcomes_ok: false` and exited 0 when the outcomes file was
+# missing. D409's runner added two more on the same lines: the allow-lists
+# accepted accented letters under a UTF-8 locale on bash 3.2.
+# 40a-40b sweep every shell fence of every plugin .md but the changelog, a
+# shell fence nested in a four-backtick fence included: every
+# cd runs as `CDPATH= cd --`, every [A-Za-z0-9_-] allow-list is the one
+# canonical line followed by its 64 cap, every *_ID digit allow-list is
+# followed by its 20 cap, and an `LC_ALL=C` line comes earlier in the same
+# fence. The one exemption is the checker function's report-path parse line:
+# Group 29 pins that function to stride's own by cksum (29d, 29k3), it builds
+# no path, and Step 8's block sets LC_ALL=C before calling it. 40c runs every
+# root block under a CDPATH decoy and under CDPATH=.; 40d runs Step 8's
+# outcomes block standalone and sourced; 40g runs every stem block's sanitisers on the same values, a 64/65
+# character identifier, a 20/21 digit id and an accented identifier among
+# them; 40e and 40n1-40n9 break copies and show the case that catches each;
+# 40p pins the changelog entry; 40z shows the real files were never written.
+# The task's named unit tests keep their testing_strategy names, prefixed
+# with their Group 40 id.
+# What this does NOT prove: that an agent fills the placeholders from the
+# claim response in a live Codex CLI session (no Codex CLI here).
+echo ""
+echo "=== Test Group 40: one stem rule everywhere, CDPATH cleared before every cd, Step 8's outcomes block exits 1 on false (W2688) ==="
+
+G40_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G40_CT="$PORT_ROOT/skills/stride-completing-tasks/SKILL.md"
+G40_KL="$PORT_ROOT/skills/stride-claiming-tasks/SKILL.md"
+G40_CL="$PORT_ROOT/CHANGELOG.md"
+if [ -f "$G40_WF" ] && [ -f "$G40_CT" ] && [ -f "$G40_KL" ] && [ -f "$G40_CL" ] \
+   && command -v jq >/dev/null 2>&1; then
+  G40_SUM_BEFORE="$(cksum < "$G40_WF") $(cksum < "$G40_CT") $(cksum < "$G40_KL") $(cksum < "$G40_CL")"
+  G40_X="$TMPDIR_TEST/g40 dir"
+  rm -rf "$G40_X"; mkdir -p "$G40_X/work/proj/.stride" "$G40_X/decoy/proj" "$G40_X/port"
+  : > "$G40_X/work/proj/.stride.md"; : > "$G40_X/decoy/proj/.stride.md"
+  G40_PROJ=$(cd "$G40_X/work/proj" && pwd -P)
+  G40_LOC=en_US.UTF-8
+  G40_UTF=$'W\xc3\xa9'
+  # G40_BITES: does this bash's [A-Za-z] match an accented letter under G40_LOC?
+  G40_BITES=$(LC_ALL="$G40_LOC" G40_UTF="$G40_UTF" bash -c 'case "$G40_UTF" in *[!A-Za-z0-9_-]*) echo no ;; *) echo yes ;; esac' 2>/dev/null)
+  G40_EXEMPT="case \"\$id\" in ( '' | *[!A-Za-z0-9_-]* ) bad=1; continue ;; esac"
+
+  # G40_SWEEP: per shell fence, CD / STEM / ID / EXEMPT tallies and one BAD per rule broken
+  read -r -d '' G40_SWEEP <<'G40EOF'
+function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+function closepend() { if (pend != "") { print "BAD " pk "_cap " FILENAME ":" pl; pend = "" } }
+# Fences follow the CommonMark rule: a fence closes only on a run of at least
+# as many backticks with no info string. A fence of four or more backticks is
+# a container, and the shorter fences inside it are swept as fences of their own.
+FNR == 1 { inb = 0; outer = 0; pend = "" }
+/^[[:space:]]*```/ {
+  inf = $0; sub(/^[[:space:]]*/, "", inf); match(inf, /^`+/); n = RLENGTH
+  inf = trim(substr(inf, n + 1)); lang = inf; sub(/[[:space:]].*$/, "", lang)
+  if (outer && n >= outer && inf == "") { closepend(); inb = 0; outer = 0; next }
+  if (inb && n >= bt && inf == "") { closepend(); inb = 0; next }
+  if (!inb && (!outer || n < outer)) {
+    sh = (lang ~ /^(bash|sh|shell|zsh|console)?$/); lc = 0; pend = ""
+    if (!outer && n >= 4) { outer = n; cshell = sh } else { inb = 1; bt = n; shellish = sh }
+    next
+  }
+}
+(inb && shellish) || (outer && !inb && cshell) {
+  t = trim($0)
+  if (pend != "") {
+    want = (pk == "stem") ? "[ \"${#" pend "}\" -le 64 ] || " pend "=''" : "[ \"${#" pend "}\" -le 20 ] || " pend "=''"
+    if (t != want) print "BAD " pk "_cap " FILENAME ":" FNR
+    pend = ""
+  }
+  if (t ~ /^#/) next
+  if (t == "LC_ALL=C") lc = 1
+  s = $0; pre = ""
+  while (match(s, /(^|[^A-Za-z0-9_.\/-])cd[[:space:]]/)) {
+    st = RSTART + (substr(s, RSTART, 2) == "cd" ? 0 : 1)
+    before = pre substr(s, 1, st - 1); after = substr(s, st)
+    print "CD " FILENAME ":" FNR
+    if (substr(before, length(before) - 7) != "CDPATH= " || substr(after, 1, 6) != "cd -- ") print "BAD cd " FILENAME ":" FNR
+    pre = before "cd "; s = substr(s, st + 3)
+  }
+  if ($0 ~ /(^|[^A-Za-z0-9_])pushd[[:space:]]/) print "BAD pushd " FILENAME ":" FNR
+  if (index(t, "[!A-Za-z0-9_-]")) {
+    if (t == ENVIRON["G40_EXEMPT"]) { print "EXEMPT " FILENAME ":" FNR; next }
+    print "STEM " FILENAME ":" FNR
+    if (!match(t, /^case "\$[A-Za-z_][A-Za-z0-9_]*" in /)) { print "BAD stem_shape " FILENAME ":" FNR; next }
+    v = substr(t, 8, RLENGTH - 12)
+    if (t != "case \"$" v "\" in ''|*[!A-Za-z0-9_-]*) " v "='' ;; esac") print "BAD stem_rule " FILENAME ":" FNR
+    if (!lc) print "BAD stem_locale " FILENAME ":" FNR
+    pend = v; pk = "stem"; pl = FNR
+  } else if (match(t, /^case "\$([A-Za-z0-9_]*_)?ID" in /)) {
+    v = substr(t, 8, RLENGTH - 12)
+    print "ID " FILENAME ":" FNR
+    if (t != "case \"$" v "\" in ''|*[!0-9]*) " v "='' ;; esac") print "BAD id_rule " FILENAME ":" FNR
+    if (!lc) print "BAD id_locale " FILENAME ":" FNR
+    pend = v; pk = "id"; pl = FNR
+  }
+}
+G40EOF
+  # g40_sweep <dir>: the sweep's lines over every .md under dir but CHANGELOG.md
+  g40_sweep() { find "$1" -name '*.md' -not -path '*/.git/*' -not -name CHANGELOG.md -print0 | G40_EXEMPT="$G40_EXEMPT" xargs -0 awk "$G40_SWEEP"; }
+  # g40_tally <dir>: "CD n STEM n ID n EXEMPT n BAD n"
+  g40_tally() {
+    local out; out=$(g40_sweep "$1")
+    printf 'CD %s STEM %s ID %s EXEMPT %s BAD %s' \
+      "$(printf '%s\n' "$out" | grep -c '^CD ')" "$(printf '%s\n' "$out" | grep -c '^STEM ')" \
+      "$(printf '%s\n' "$out" | grep -c '^ID ')" "$(printf '%s\n' "$out" | grep -c '^EXEMPT ')" \
+      "$(printf '%s\n' "$out" | grep -c '^BAD ')"
+  }
+  # g40_bad <dir>: the BAD kinds, sorted, space-separated
+  g40_bad() { g40_sweep "$1" | awk '/^BAD /{print $2}' | sort | tr '\n' ' ' | sed 's/ $//'; }
+  # g40_copy: a fresh copy of the plugin's skills under $G40_X/port
+  g40_copy() { rm -rf "$G40_X/port/skills"; cp -R "$PORT_ROOT/skills" "$G40_X/port/"; }
+  # g40_linemut <file> <old trimmed line> <new|__DELETE__>: in place, first match, indent kept; MISSING if absent
+  g40_linemut() {
+    G40_OLD="$2" G40_NEW="$3" awk '
+      function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+      !done && trim($0) == ENVIRON["G40_OLD"] {
+        done = 1; if (ENVIRON["G40_NEW"] == "__DELETE__") next
+        match($0, /^[[:space:]]*/); print substr($0, 1, RLENGTH) ENVIRON["G40_NEW"]; next
+      }
+      { print }
+      END { exit done ? 0 : 3 }' "$1" > "$1.mut" && mv "$1.mut" "$1" || { rm -f "$1.mut"; echo MISSING; }
+  }
+  # g40_range <file> <start> <end> [nth]: trimmed lines from the nth line equal to start through the next equal to end
+  g40_range() {
+    local r
+    if r=$(G40_S="$2" G40_E="$3" awk -v nth="${4:-1}" '
+      function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+      f == 0 && trim($0) == ENVIRON["G40_S"] { if (++seen == nth) f = 1 }
+      f { print trim($0) }
+      f && trim($0) == ENVIRON["G40_E"] { ok = 1; exit }
+      END { exit ok ? 0 : 3 }' "$1"); then printf '%s\n' "$r"; else echo MISSING; fi
+  }
+  # g40_fill: the placeholder lines read G40_I / G40_N instead
+  g40_fill() {
+    awk '
+      /^[A-Z_]*IDENT=\047<identifier>\047$/ { sub(/=.*/, "=\"$G40_I\""); print; next }
+      /^STEM=\047/ { print "STEM=\"$G40_I\""; next }
+      /^[A-Z_]*ID=\047<numeric id>\047$/ { sub(/=.*/, "=\"$G40_N\""); print; next }
+      { print }'
+  }
+  # g40_srun <prog> <ident> <id> <expr>: [value of expr] after running the sanitisers
+  g40_srun() {
+    printf '[%s]' "$( ( cd "$G40_X" && env -u CDPATH LC_ALL="$G40_LOC" G40_I="$2" G40_N="$3" \
+        TASK_IDENTIFIER="$2" TASK_ID="$3" bash -c "$(printf '%s\n' "$1" | g40_fill)"'
+      printf "%s" '"\"$4\""'' ) 2>/dev/null )"
+  }
+  G40_A64=$(printf 'a%.0s' $(seq 1 64)); G40_D20=$(printf '1%.0s' $(seq 1 20))
+  # g40_scheck <class> <prog> <expr>: OK, or the ids of the failed cases
+  #   PAIR: ident, else id; ENV: ident, else id, else unknown; TF: ident|id; STEM: one name
+  g40_scheck() {
+    local class="$1" p="$2" e="$3" bad="" c i n w
+    for c in plain 64 65 slash utf8 id20 id21 idchar; do
+      case "$c" in
+        plain) i='W47-b_1'; n=9 ;; 64) i="$G40_A64"; n='' ;; 65) i="${G40_A64}a"; n=9 ;;
+        slash) i='W47/x'; n=9 ;; utf8) i="$G40_UTF"; n=9 ;; id20) i=''; n="$G40_D20" ;;
+        id21) i=''; n="${G40_D20}1" ;; idchar) i=''; n='9x' ;;
+      esac
+      case "$class:$c" in
+        *:plain) w='W47-b_1' ;; *:64) w="$G40_A64" ;;
+        STEM:*) w='' ;;
+        TF:65|TF:slash|TF:utf8) w='|9' ;; TF:id20) w="|$G40_D20" ;; TF:*) w='|' ;;
+        *:65|*:slash|*:utf8) w=9 ;; *:id20) w="$G40_D20" ;;
+        ENV:*) w=unknown ;; PAIR:*) w='' ;;
+      esac
+      [ "$class:$c" = TF:plain ] && w='W47-b_1|9'
+      [ "$class:$c" = TF:64 ] && w="$G40_A64|"
+      [ "$(g40_srun "$p" "$i" "$n" "$e")" = "[$w]" ] || bad="$bad $c"
+    done
+    echo "${bad:-OK}"
+  }
+  # The stem blocks: name@file@start@end@nth@class@expr (the lines themselves hold "|")
+  G40_BLOCKS="rc_wf@$G40_WF@RC_IDENT=\"\$TASK_IDENTIFIER\"@RC_IDENT=\"\${RC_IDENT:-\${RC_ID:-unknown}}\"@1@ENV@\$RC_IDENT
+rc_claim@$G40_KL@RC_IDENT=\"\$TASK_IDENTIFIER\"@RC_IDENT=\"\${RC_IDENT:-\${RC_ID:-unknown}}\"@1@ENV@\$RC_IDENT
+counter@$G40_WF@IDENT=\"\$TASK_IDENTIFIER\"@IDENT=\"\${IDENT:-\${IDENT_ID:-unknown}}\"@1@ENV@\$IDENT
+fixpath@$G40_WF@IDENT=\"\$TASK_IDENTIFIER\"@IDENT=\"\${IDENT:-\${IDENT_ID:-unknown}}\"@2@ENV@\$IDENT
+window@$G40_WF@STEM='W47'   # change this line only: the name the task file was saved under@[ \"\${#STEM}\" -le 64 ] || STEM=''@1@STEM@\$STEM
+attach@$G40_WF@STEM='<identifier>'   # change this line only: the identifier, or the numeric id when the identifier is not a plain 1-64 character [A-Za-z0-9_-] token@[ \"\${#STEM}\" -le 64 ] || STEM=''@1@STEM@\$STEM
+security@$G40_WF@SR_IDENT='<identifier>'@SR_IDENT=\"\${SR_IDENT:-\$SR_ID}\"@1@PAIR@\$SR_IDENT
+explore@$G40_WF@EX_IDENT='<identifier>'@EX_IDENT=\"\${EX_IDENT:-\$EX_ID}\"@1@PAIR@\$EX_IDENT
+goalscope@$G40_WF@GS_IDENT='<identifier>'@GS_STEM=\"\${GS_IDENT:-\$GS_ID}\"@1@PAIR@\$GS_STEM
+outcomes_wf@$G40_WF@OC_IDENT='<identifier>'@OC_STEM=\"\${OC_IDENT:-\$OC_ID}\"@1@PAIR@\$OC_STEM
+outcomes_ct@$G40_CT@OC_IDENT='<identifier>'@OC_STEM=\"\${OC_IDENT:-\$OC_ID}\"@1@PAIR@\$OC_STEM
+cleanup@$G40_WF@TF_IDENT='<identifier>'@[ \"\${#TF_ID}\" -le 20 ] || TF_ID=''@1@TF@\$TF_IDENT|\$TF_ID"
+  # g40_prog <name>: that block's sanitiser lines from the real files
+  g40_prog() {
+    local l f s e n; l=$(printf '%s\n' "$G40_BLOCKS" | grep "^$1@")
+    IFS='@' read -r _ f s e n _ _ <<EOF_G40
+$l
+EOF_G40
+    g40_range "$f" "$s" "$e" "$n"
+  }
+  # g40_class / g40_expr <name>
+  g40_class() { printf '%s\n' "$G40_BLOCKS" | grep "^$1@" | cut -d'@' -f6; }
+  g40_expr() { printf '%s\n' "$G40_BLOCKS" | grep "^$1@" | cut -d'@' -f7-; }
+
+  # --- 40a-40b: the every-fence sweep on the real files ---
+  G40_REAL=$(g40_tally "$PORT_ROOT")
+  assert_eq "40a: Group 40: every stem-building block in stride-workflow uses the same 1-64 identifier and 1-20 digit caps (every fence of every plugin .md; one exempt, pinned line)" \
+    "CD 17 STEM 12 ID 10 EXEMPT 1 BAD 0" "$G40_REAL"
+  assert_eq "40b: Group 40: every cd in a stride-workflow shell fence runs with CDPATH cleared (and every cd in every other plugin fence)" \
+    "" "$(g40_sweep "$PORT_ROOT" | awk '$1 == "BAD" && ($2 == "cd" || $2 == "pushd")')"
+
+  # --- 40g: every stem block's sanitisers, run on the same values ---
+  G40_ALLB=""
+  for G40_B in $(printf '%s\n' "$G40_BLOCKS" | cut -d'@' -f1); do
+    G40_P=$(g40_prog "$G40_B")
+    if [ "$G40_P" = MISSING ]; then G40_R="MISSING"; else G40_R=$(g40_scheck "$(g40_class "$G40_B")" "$G40_P" "$(g40_expr "$G40_B")"); fi
+    assert_eq "40g ($G40_B): Group 40: the block's sanitisers keep a plain token, 64 characters and 20 digits, and blank a slash, 65 characters, 21 digits, a non-digit id and an accented identifier" \
+      "OK" "$G40_R"
+    G40_ALLB="$G40_ALLB $G40_B"
+  done
+  assert_eq "40g: the table names all twelve stem blocks the sweep counts" "12" "$(printf '%s\n' $G40_ALLB | wc -l | tr -d ' ')"
+
+  # --- 40c: every root block under a CDPATH decoy and under CDPATH=. ---
+  # g40_roots <file>: one line per standalone root block, the line numbers of
+  # its ROOT= line and its canonicalise line (0 when it has none within 12 lines)
+  g40_roots() {
+    awk '
+      function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+      trim($0) == "ROOT=\"${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}\"" { if (s) print s, 0; s = FNR; next }
+      s && index(trim($0), "[ -n \"$ROOT\" ] && ROOT=\"$(") == 1 { print s, FNR; s = 0; next }
+      s && FNR - s > 12 { print s, 0; s = 0 }
+      END { if (s) print s, 0 }' "$1"
+  }
+  # g40_rootrun <file> <from> <to> <CDPATH value>: what the block's ROOT is, one line per line
+  g40_rootrun() {
+    ( cd "$G40_X/work" && env -u CLAUDE_PROJECT_DIR CODEX_PROJECT_DIR=proj CDPATH="$4" \
+        bash -c "$(sed -n "$2,$3p" "$1")"'
+      printf "%s\n" "$ROOT"' 2>/dev/null )
+  }
+  # g40_rootcheck <file> <CDPATH value>: "canonicalising/without" counts, then the failing line numbers
+  g40_rootcheck() {
+    local a b yes=0 no=0 bad=""
+    while read -r a b; do
+      if [ "$b" = 0 ]; then no=$((no + 1)); continue; fi
+      yes=$((yes + 1))
+      [ "$(g40_rootrun "$1" "$a" "$b" "$2")" = "$G40_PROJ" ] || bad="$bad $a"
+    done <<EOF_G40R
+$(g40_roots "$1")
+EOF_G40R
+    echo "$yes/$no${bad:+ FAIL:$bad}"
+  }
+  assert_eq "40c: Group 40: with CDPATH pointing at a decoy dir, the root block still prints exactly one path (every stride-workflow root block, with a relative CODEX_PROJECT_DIR)" \
+    "8/2" "$(g40_rootcheck "$G40_WF" "$G40_X/decoy")"
+  assert_eq "40c: and every stride-completing-tasks root block" "3/0" "$(g40_rootcheck "$G40_CT" "$G40_X/decoy")"
+  assert_eq "40c2: under CDPATH=. too, the edge case where cd prints the path it found" \
+    "8/2 3/0" "$(g40_rootcheck "$G40_WF" .) $(g40_rootcheck "$G40_CT" .)"
+
+  # --- 40d: Step 8's outcomes block, standalone and sourced ---
+  G40_OB=$(awk '/^\*\*Check the exploratory record before the call/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$G40_WF")
+  G40_STUB_F="exploratory_outcomes_ok() { echo 'exploratory_outcomes_ok: false'; return 1; }"
+  G40_STUB_T="exploratory_outcomes_ok() { echo 'exploratory_outcomes_ok: true'; }"
+  # g40_ofill <block> <stub>: placeholders filled (W40 / 40), the stub pasted in
+  g40_ofill() {
+    local b="$1"
+    b=${b/"OC_IDENT='<identifier>'"/"OC_IDENT='W40'"}
+    b=${b/"OC_ID='<numeric id>'"/"OC_ID='40'"}
+    b=${b/"# <paste exploratory_outcomes_ok from Step 6.5 here>"/"$2"}
+    printf '%s\n' "${b/"'<last returned report path, one per charter>'"/"\"\$G40_RP\""}"
+  }
+  # g40_orun <block> <stub>: "what it printed|exit status", run as a standalone script
+  g40_orun() {
+    local f="$G40_X/ob.sh" out rc
+    g40_ofill "$1" "$2" > "$f"
+    out=$(cd "$G40_PROJ" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH G40_RP="$G40_PROJ/.stride/.exploratory-W40-r1.json" bash "$f" 2>/dev/null); rc=$?
+    printf '%s|%s' "$out" "$rc"
+  }
+  # g40_osrc <block> <stub>: "what it printed|survived <status>", sourced into a shell that carries on
+  g40_osrc() {
+    local f="$G40_X/ob.sh"
+    g40_ofill "$1" "$2" > "$f"
+    ( cd "$G40_PROJ" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH G40_F="$f" G40_O="$G40_X/ob.out" G40_RP="$G40_PROJ/.stride/.exploratory-W40-r1.json" \
+        bash -c '. "$G40_F" > "$G40_O"; r=$?; printf "%s|survived %s" "$(cat "$G40_O")" "$r"' 2>/dev/null )
+  }
+  G40_OF="$G40_PROJ/.stride/.outcomes-W40.json"
+  rm -f "$G40_OF"
+  assert_eq "40d: Group 40: the extracted exploratory_outcomes_ok guard run as a standalone block exits 1 on a false result (no outcomes file)" \
+    "exploratory_outcomes_ok: false|1" "$(g40_orun "$G40_OB" "$G40_STUB_T")"
+  assert_eq "40d2: and sourced, it returns 1 and the sourcing shell carries on" \
+    "exploratory_outcomes_ok: false|survived 1" "$(g40_osrc "$G40_OB" "$G40_STUB_T")"
+  printf '%s\n' '{"completion_notes":"x","completion_summary":"y"}' > "$G40_OF"
+  assert_eq "40d3: with the outcomes file present, a checker that says false exits 1 and one that says true exits 0" \
+    "exploratory_outcomes_ok: false|1 exploratory_outcomes_ok: true|0" \
+    "$(g40_orun "$G40_OB" "$G40_STUB_F") $(g40_orun "$G40_OB" "$G40_STUB_T")"
+  if declare -F g29_fn >/dev/null 2>&1; then
+    G40_FN=$(g29_fn "$G40_WF")
+    assert_eq "40d4: with the real checker pasted in, a record with no outcome lines and one report path exits 1" \
+      "exploratory_outcomes_ok: false|1" "$(g40_orun "$G40_OB" "$G40_FN")"
+  fi
+  rm -f "$G40_OF"
+
+  # --- 40e, 40n1-40n9: break a copy, see the case that catches it ---
+  G40_PW="$G40_X/port/skills/stride-workflow/SKILL.md"
+  G40_PC="$G40_X/port/skills/stride-completing-tasks/SKILL.md"
+  g40_copy
+  G40_M=$(g40_linemut "$G40_PW" '[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"' '[ -n "$ROOT" ] && ROOT="$(cd -- "$ROOT" 2>/dev/null && pwd -P)"')
+  assert_eq "40e: Group 40: break-it - removing CDPATH= from one block makes the sweep fail" "cd" "${G40_M}$(g40_bad "$G40_X/port")"
+  assert_contains "40e2: and that block's ROOT is no longer one path under the decoy, so 40c catches it too" "FAIL" "$(g40_rootcheck "$G40_PW" "$G40_X/decoy")"
+  g40_copy
+  G40_M=$(g40_linemut "$G40_PC" '( CDPATH= cd -- "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \' '( cd "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \')
+  assert_eq "40n1: break-it - restoring the completion block's bare cd fails the sweep" "cd" "${G40_M}$(g40_bad "$G40_X/port")"
+  g40_copy
+  G40_M=$(g40_linemut "$G40_PW" 'LC_ALL=C' '__DELETE__')
+  assert_eq "40n2: break-it - deleting a block's LC_ALL=C fails the sweep on both of its allow-lists" "id_locale stem_locale" "${G40_M}$(g40_bad "$G40_X/port")"
+  g40_copy
+  G40_M=$(g40_linemut "$G40_PW" "[ \"\${#SR_ID}\" -le 20 ] || SR_ID=''" '__DELETE__')
+  G40_M2=$(g40_linemut "$G40_PW" "[ \"\${#STEM}\" -le 64 ] || STEM=''" '__DELETE__')
+  assert_eq "40n3: break-it - deleting an id cap and a stem cap fails the sweep on each" "id_cap stem_cap" "${G40_M}${G40_M2}$(g40_bad "$G40_X/port")"
+  assert_contains "40n3b: and the security block without its id cap keeps a 21-digit id, so 40g catches it" " id21" \
+    " $(g40_scheck PAIR "$(g40_range "$G40_PW" "SR_IDENT='<identifier>'" "SR_IDENT=\"\${SR_IDENT:-\$SR_ID}\"")" "\$SR_IDENT") "
+  g40_copy
+  G40_M=$(g40_linemut "$G40_PW" "case \"\$IDENT\" in ''|*[!A-Za-z0-9_-]*) IDENT='' ;; esac" 'case "$IDENT" in *[!A-Za-z0-9_-]*|"") IDENT="$TASK_ID" ;; esac')
+  assert_eq "40n4: break-it - restoring the old identifier fallback line fails the sweep" "stem_rule" "${G40_M}$(g40_bad "$G40_X/port")"
+  g40_copy
+  G40_M=$(g40_linemut "$G40_PW" "$G40_EXEMPT" "case \"\$id\" in ( '' | *[!A-Za-z0-9_-]* ) continue ;; esac")
+  assert_eq "40n5: break-it - the exemption is the checker's exact line, so editing it fails the sweep" "yes" \
+    "$([ -z "$G40_M" ] && [ -n "$(g40_bad "$G40_X/port")" ] && echo yes || echo no)"
+  g40_copy
+  printf '\n```bash\ncd "$ROOT"\nx=$(cd /tmp && pwd)\npushd /tmp\nCDPATH= cd -- /tmp\n```\n\n```text\ncd "$ROOT"\n```\n' >> "$G40_PW"
+  assert_eq "40n6: break-it - a planted fence with a bare cd, a cd in a substitution and a pushd fails the sweep three times; a text fence and a cleared cd do not" \
+    "cd cd pushd" "$(g40_bad "$G40_X/port")"
+  g40_copy
+  G40_PAT="  echo 'exploratory_outcomes_ok: false'; false"; G40_NEW="  echo 'exploratory_outcomes_ok: false'"
+  G40_OBM=${G40_OB/"$G40_PAT"/"$G40_NEW"}
+  assert_eq "40n7: break-it - without the false after the refusal, the standalone block exits 0, so 40d catches it" \
+    "changed exploratory_outcomes_ok: false|0" \
+    "$([ "$G40_OBM" != "$G40_OB" ] && echo changed || echo MISSING) $(g40_orun "$G40_OBM" "$G40_STUB_T")"
+  g40_copy
+  printf '\n````markdown\n## before_review\n\n```bash\ncd "$ROOT"\n```\n\n```text\ncd "$ROOT"\n```\n````\n\n````text\n```bash\ncd /tmp\n```\n````\n' >> "$G40_PW"
+  assert_eq "40n8: break-it - a bare cd in a shell fence nested in a four-backtick fence fails the sweep, once per nested shell fence; a nested text fence does not" \
+    "cd cd" "$(g40_bad "$G40_X/port")"
+  if [ "$G40_BITES" = yes ]; then
+    G40_P=$(g40_prog outcomes_wf)
+    assert_contains "40n9: break-it - without LC_ALL=C, bash under $G40_LOC keeps an accented identifier, so 40g catches it" " utf8" \
+      " $(g40_scheck PAIR "${G40_P/$'\nLC_ALL=C\n'/$'\n:\n'}" "\$OC_STEM") "
+  else
+    echo "  SKIP: 40n9: this bash does not match accented letters in [A-Za-z] under $G40_LOC, so LC_ALL=C cannot be shown to matter here"
+  fi
+
+  # --- 40p: the changelog ---
+  assert_eq "40p: the changelog carries this entry once under [Unreleased], above D411's" "1 yes" \
+    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G40_CL" | grep -c '^### Fixed — .*(W2688)$') $(awk '/^### .*\(W2688\)$/{a=NR} /^### .*\(D411\)$/{b=NR} END{print (a && b && a < b) ? "yes" : "no"}' "$G40_CL")"
+
+  rm -rf "$G40_X"
+  assert_eq "40z: the break-it cases left the real files untouched" "$G40_SUM_BEFORE" \
+    "$(cksum < "$G40_WF") $(cksum < "$G40_CT") $(cksum < "$G40_KL") $(cksum < "$G40_CL")"
+else
+  echo "  SKIP: Test Group 40 (a skill, the changelog or jq is missing)"
 fi
 
 echo ""

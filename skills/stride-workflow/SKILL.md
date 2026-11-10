@@ -190,8 +190,14 @@ git rev-parse HEAD > .stride/task-base-ref
 # The fix-path baseline (.review-fixbase-*.txt) goes with it: a stale one
 # would measure this attempt's fixes against another attempt's tree.
 RC_IDENT="$TASK_IDENTIFIER"
-case "$RC_IDENT" in *[!A-Za-z0-9_-]*|"") RC_IDENT="$TASK_ID" ;; esac
-case "$RC_IDENT" in *[!A-Za-z0-9_-]*|"") RC_IDENT="unknown" ;; esac
+RC_ID="$TASK_ID"
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
+case "$RC_IDENT" in ''|*[!A-Za-z0-9_-]*) RC_IDENT='' ;; esac
+[ "${#RC_IDENT}" -le 64 ] || RC_IDENT=''
+case "$RC_ID" in ''|*[!0-9]*) RC_ID='' ;; esac
+[ "${#RC_ID}" -le 20 ] || RC_ID=''
+RC_IDENT="${RC_IDENT:-${RC_ID:-unknown}}"
 rm -f "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-rounds-$RC_IDENT.json" \
       "${CLAUDE_PROJECT_DIR:-.}/.stride/.review-fixbase-$RC_IDENT.txt"
 ```
@@ -290,6 +296,8 @@ Skip exploration, planning, and review. Proceed directly to Step 4 (Implementati
 
 ```bash
 STEM='W47'   # change this line only: the name the task file was saved under
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
 ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
 if [ -z "$ROOT" ]; then
   d=$PWD
@@ -298,10 +306,12 @@ if [ -z "$ROOT" ]; then
     d=$(dirname "$d")
   done
 fi
-[ -n "$ROOT" ] && ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"
+# CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
 GIT_SAFE='-c core.fsmonitor=false -c safe.bareRepository=explicit -c log.showSignature=false'
 window_line() { printf '%s\n' "$1"; }
 case "$STEM" in ''|*[!A-Za-z0-9_-]*) STEM='' ;; esac
+[ "${#STEM}" -le 64 ] || STEM=''
 TASKF="$ROOT/.stride/.task-$STEM.json"
 if [ -z "$ROOT" ] || [ -z "$STEM" ] || [ ! -f "$TASKF" ]; then
   window_line 'commit window: not checked — no task file'
@@ -327,7 +337,7 @@ else
         window_line "key_files[$N] not passed: path not plain"; continue ;; esac
       D="$ROOT/$(dirname "$P")"
       [ -d "$D" ] || { window_line "key_files[$N] not checked: no such directory"; continue; }
-      D="$(cd "$D" && pwd -P)"
+      D="$(CDPATH= cd -- "$D" && pwd -P)"
       case "$D" in "$ROOT"|"$ROOT"/*) ;; *)
         window_line "key_files[$N] not passed: path leaves the project"; continue ;; esac
       F="./$(basename "$P")"
@@ -358,6 +368,8 @@ fi
 
 ```bash
 STEM='<identifier>'   # change this line only: the identifier, or the numeric id when the identifier is not a plain 1-64 character [A-Za-z0-9_-] token
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
 ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
 if [ -z "$ROOT" ]; then
   d=$PWD
@@ -366,7 +378,8 @@ if [ -z "$ROOT" ]; then
     d=$(dirname "$d")
   done
 fi
-[ -n "$ROOT" ] && ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"
+# CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
 case "$STEM" in ''|*[!A-Za-z0-9_-]*) STEM='' ;; esac
 [ "${#STEM}" -le 64 ] || STEM=''
 ATTACHMENTS_DIR=''
@@ -479,10 +492,17 @@ Follow:
 # non-root cwd would make every round count as round 1 and the cap never fire.
 ROOT="${CLAUDE_PROJECT_DIR:-.}"
 mkdir -p "$ROOT/.stride"
+# Never build a path component from free text.
 IDENT="$TASK_IDENTIFIER"
-case "$IDENT" in *[!A-Za-z0-9_-]*|"") IDENT="$TASK_ID" ;; esac   # never build a
-case "$IDENT" in *[!A-Za-z0-9_-]*|"") IDENT="unknown" ;; esac    # path component
-COUNTER="$ROOT/.stride/.review-rounds-$IDENT.json"               # from free text
+IDENT_ID="$TASK_ID"
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
+case "$IDENT" in ''|*[!A-Za-z0-9_-]*) IDENT='' ;; esac
+[ "${#IDENT}" -le 64 ] || IDENT=''
+case "$IDENT_ID" in ''|*[!0-9]*) IDENT_ID='' ;; esac
+[ "${#IDENT_ID}" -le 20 ] || IDENT_ID=''
+IDENT="${IDENT:-${IDENT_ID:-unknown}}"
+COUNTER="$ROOT/.stride/.review-rounds-$IDENT.json"
 # TASK_ID is allow-listed too: it reaches us from the same claim response as
 # TASK_IDENTIFIER, so whatever could poison one could poison the other, and an
 # unchecked fallback would sidestep the guard by using the field it skips.
@@ -532,8 +552,14 @@ A successful claim clears this counter: it is scoped to one attempt, so an attem
 ```bash
 ROOT="${CLAUDE_PROJECT_DIR:-.}"
 IDENT="$TASK_IDENTIFIER"
-case "$IDENT" in *[!A-Za-z0-9_-]*|"") IDENT="$TASK_ID" ;; esac
-case "$IDENT" in *[!A-Za-z0-9_-]*|"") IDENT="unknown" ;; esac
+IDENT_ID="$TASK_ID"
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
+case "$IDENT" in ''|*[!A-Za-z0-9_-]*) IDENT='' ;; esac
+[ "${#IDENT}" -le 64 ] || IDENT=''
+case "$IDENT_ID" in ''|*[!0-9]*) IDENT_ID='' ;; esac
+[ "${#IDENT_ID}" -le 20 ] || IDENT_ID=''
+IDENT="${IDENT:-${IDENT_ID:-unknown}}"
 FIX_BASE_FILE="$ROOT/.stride/.review-fixbase-$IDENT.txt"
 FIX_REPOS="${FIX_REPOS:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 FIX_CODE_PATHS=-1
@@ -901,9 +927,10 @@ If either condition is false, **skip this sub-step entirely and use the task-rev
           d=$(dirname "$d")
         done
       fi
-      [ -n "$ROOT" ] && ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"
+      # CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+      [ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
       SR_DIR=''
-      case "$SR_SKILL_DIR" in /*) SR_DIR="$(cd "$SR_SKILL_DIR/modes" 2>/dev/null && pwd -P)" ;; esac
+      case "$SR_SKILL_DIR" in /*) SR_DIR="$(CDPATH= cd -- "$SR_SKILL_DIR/modes" 2>/dev/null && pwd -P)" ;; esac
       SR_FILE="$SR_DIR/${SR_NAME#modes/}"
       if [ -z "$SR_NAME" ]; then
         echo 'rule file not sent: <unknown name> — not one of the three mode files'
@@ -925,8 +952,13 @@ If either condition is false, **skip this sub-step entirely and use the task-rev
       SR_IDENT='<identifier>'
       SR_ID='<numeric id>'
       SR_ROUND='<review round>'
+      # LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+      LC_ALL=C
+      case "$SR_IDENT" in ''|*[!A-Za-z0-9_-]*) SR_IDENT='' ;; esac
+      [ "${#SR_IDENT}" -le 64 ] || SR_IDENT=''
       case "$SR_ID" in ''|*[!0-9]*) SR_ID='' ;; esac
-      case "$SR_IDENT" in ''|*[!A-Za-z0-9_-]*) SR_IDENT="$SR_ID" ;; esac
+      [ "${#SR_ID}" -le 20 ] || SR_ID=''
+      SR_IDENT="${SR_IDENT:-$SR_ID}"
       case "$SR_ROUND" in ''|*[!0-9]*) SR_ROUND='' ;; esac
       ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
       if [ -z "$ROOT" ]; then
@@ -936,7 +968,8 @@ If either condition is false, **skip this sub-step entirely and use the task-rev
           d=$(dirname "$d")
         done
       fi
-      [ -n "$ROOT" ] && ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"
+      # CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+      [ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
       SR_PATH="$ROOT/.stride/.security-$SR_IDENT-r$SR_ROUND.json"
       if [ -z "$ROOT" ] || [ -z "$SR_IDENT" ] || [ -z "$SR_ROUND" ]; then
         echo 'security result path: not sent — no project root, plain identifier or round'
@@ -1053,8 +1086,13 @@ When the plugin is available and the task carries `manual_tests` or `edge_cases`
      ```bash
      EX_IDENT='<identifier>'
      EX_ID='<numeric id>'
+     # LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+     LC_ALL=C
+     case "$EX_IDENT" in ''|*[!A-Za-z0-9_-]*) EX_IDENT='' ;; esac
+     [ "${#EX_IDENT}" -le 64 ] || EX_IDENT=''
      case "$EX_ID" in ''|*[!0-9]*) EX_ID='' ;; esac
-     case "$EX_IDENT" in ''|*[!A-Za-z0-9_-]*) EX_IDENT="$EX_ID" ;; esac
+     [ "${#EX_ID}" -le 20 ] || EX_ID=''
+     EX_IDENT="${EX_IDENT:-$EX_ID}"
      ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
      if [ -z "$ROOT" ]; then
        d=$PWD
@@ -1063,7 +1101,8 @@ When the plugin is available and the task carries `manual_tests` or `edge_cases`
          d=$(dirname "$d")
        done
      fi
-     [ -n "$ROOT" ] && ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"
+     # CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+     [ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
      EX_DIR="$ROOT/.stride"
      if [ -z "$ROOT" ] || [ -z "$EX_IDENT" ]; then
        echo 'exploratory report path: not sent — no project root or plain identifier'
@@ -1219,6 +1258,8 @@ Some defects live between a goal's tasks — one child's staging against another
    ```bash
    GS_IDENT='<identifier>'
    GS_ID='<numeric id>'
+   # LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+   LC_ALL=C
    case "$GS_IDENT" in ''|*[!A-Za-z0-9_-]*) GS_IDENT='' ;; esac
    [ "${#GS_IDENT}" -le 64 ] || GS_IDENT=''
    case "$GS_ID" in ''|*[!0-9]*) GS_ID='' ;; esac
@@ -1569,6 +1610,8 @@ If custom agents are unavailable, diagnose manually: read the error output, iden
 ```bash
 OC_IDENT='<identifier>'
 OC_ID='<numeric id>'
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
 case "$OC_IDENT" in ''|*[!A-Za-z0-9_-]*) OC_IDENT='' ;; esac
 [ "${#OC_IDENT}" -le 64 ] || OC_IDENT=''
 case "$OC_ID" in ''|*[!0-9]*) OC_ID='' ;; esac
@@ -1586,7 +1629,7 @@ fi
 OUT="$ROOT/.stride/.outcomes-$OC_STEM.json"
 if [ -z "$ROOT" ] || [ -z "$OC_STEM" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ] \
    || [ ! -f "$OUT" ] || [ -L "$OUT" ]; then
-  echo 'exploratory_outcomes_ok: false'
+  echo 'exploratory_outcomes_ok: false'; false
 else
   exploratory_outcomes_ok "$OUT" '<last returned report path, one per charter>'
 fi
@@ -1661,10 +1704,12 @@ Call `PATCH /api/tasks/:id/complete` with ALL required fields:
 ```bash
 TF_IDENT='<identifier>'
 TF_ID='<numeric id>'
-case "$TF_IDENT" in *[!A-Za-z0-9_-]*) TF_IDENT="" ;; esac
-[ "${#TF_IDENT}" -le 64 ] || TF_IDENT=""
-case "$TF_ID" in *[!0-9]*) TF_ID="" ;; esac
-[ "${#TF_ID}" -le 20 ] || TF_ID=""
+# LC_ALL=C: the allow-lists below then match ASCII bytes only, on bash 3.2 too.
+LC_ALL=C
+case "$TF_IDENT" in ''|*[!A-Za-z0-9_-]*) TF_IDENT='' ;; esac
+[ "${#TF_IDENT}" -le 64 ] || TF_IDENT=''
+case "$TF_ID" in ''|*[!0-9]*) TF_ID='' ;; esac
+[ "${#TF_ID}" -le 20 ] || TF_ID=''
 ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
 if [ -z "$ROOT" ]; then
   d=$PWD
