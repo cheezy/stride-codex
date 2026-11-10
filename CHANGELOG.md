@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — Group 29 pins Step 8's own guards, gives every false fixture a twin, and checks its own case ranges (W2685)
+
+Closes the 1.43.0 known issue "Three Group 29 gaps were recorded, not fixed, at W2681's review cap". Only the hook suite changes; no skill, doc or hook script does.
+
+- **Step 8's guards are pinned by running the block.** The real checker already prints `false` for a missing payload, so 29e4 passed with the block's missing-file guard deleted. Group 29 now also runs a copy of the Step 8 block with a stub checker that always prints `true`, so a `false` can only come from a guard: a missing outcomes file and a dangling link at its path (29e5) each print `false`, and so does a `.stride` that is a regular file (29e6). The two symlink cases run the real checker on a sound record behind the link, so a symlinked outcomes file and a symlinked `.stride/` each print `false` only while their guard stands. 29e7, 29e8 and 29e9 delete the missing-file, file-symlink and `.stride`-symlink guard from a copy of the block and show the case that pins each one then prints `true`. 29e10 runs the block with an identifier and numeric id it cannot use, and 29e11 runs a copy with its directory and file guards deleted from a directory with no repository root, so the empty-stem and empty-root guards each print `false` on their own; 29e12 and 29e13 delete each of those guards and show its case then prints `true`.
+- **Every false fixture has a twin with its defect removed.** Each case that expects `false` (or exit 1), from 29l3 to 29s6 and 29e3 to 29e6, now has a `29y` case that rebuilds the same record with only that defect removed, recounting the coverage line where the fix changes the count, and shows the checker prints `true`. A fixture that was false for some other reason would fail its twin. 29z reads Group 29's own `assert_eq` lines and fails unless every false case has its own twin: ids are compared with their repeats, a false expectation counts in any spelling, an expected value on the line after the label is read by joining backslash-continued lines first, and a twin counts only when it expects `true`.
+- **No stale ranges.** The header, the `29l-29s7` and `29v-29w17` section comments and the jq SKIP line now give the cases they cover. 29z2 reads each range a Group 29 comment or SKIP line gives, and fails when one starts or ends at a case that does not exist, or ends short of its series' last case: a numbered end below the series' highest number, or a bare end such as `29s` on a series that has numbered cases.
+
+Not verified in a live Codex CLI run, since none was available here. The suite needs none.
+
 ### Fixed — Goal-scope lines carry a marker, "fired" has one definition, and one pathless dispatch no longer switches the outcomes check off (D405)
 
 Closes the 1.43.0 known issue "Wording gaps the release's exploratory pass found and left open", except the trigger root D404 already fixed. W2684's goal-scope pass (r6) and task-scope sessions (r2, r3) found them, all from source.

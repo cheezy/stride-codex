@@ -6251,10 +6251,15 @@ fi
 # byte-identical to stride's (the checker keys on them), stride-workflow
 # Step 6.5 defines exploratory_outcomes_ok, Step 8 runs it before the complete
 # call, and Step 9 repeats every HANDED BACK: line. g29_check scopes each rule
-# to its section and counts it exactly once there; 29l-29s run the checker,
-# extracted from the skill, against fixture records under $TMPDIR_TEST; 29u
-# mutates the extracted function and 29v-29w9 mutate COPIES of the skills --
-# the real files are never written. 29k compares the formats and the function
+# to its section and counts it exactly once there; 29l-29s7 run the checker,
+# extracted from the skill, against fixture records under $TMPDIR_TEST;
+# 29e2-29e13 run Step 8's whole block, 29e4-29e13 pinning each guard on its
+# refusal line;
+# 29u-29u8 mutate the extracted function; 29y gives every case that expects
+# false a twin with its defect removed, which must be true; and 29v-29w17
+# mutate COPIES of the skills -- the real files are never written. 29z and
+# 29z2 read this group's own text: every false case has its 29y twin, and no
+# comment gives a stale case range. 29k compares the formats and the function
 # with stride's own when that repo is present. It reuses Group 27's
 # g27_slice, g27_count and g27_mut and Group 28's g28_block.
 # What this does NOT prove: that an agent writes the lines or runs the check
@@ -6477,7 +6482,7 @@ if [ -f "$G29_WF" ] && [ -f "$G29_SW" ] && [ -f "$G29_CT" ] && [ -f "$G29_DOC" ]
     echo "  SKIP: 29k: stride not found at $G29_UP -- the cross-repo compare runs only when the upstream repo is present"
   fi
 
-  # --- 29l-29s: the checker, extracted from the skill and run ---
+  # --- 29l-29s7: the checker, extracted from the skill and run ---
   if command -v jq >/dev/null 2>&1; then
     G29_FN=$(g29_fn "$G29_WF")
     eval "$G29_FN"
@@ -6638,9 +6643,98 @@ $G29_C1" '{completion_notes: $n, completion_summary: $s}' > "$G29_S/.outcomes-W9
       '{completion_notes: $n, completion_summary: $s}' > "$G29_S/.outcomes-W9.json"
     assert_eq "29e3: and false on a record missing its owner" "$G29_NO" \
       "$(cd "$G29_D" && G29_R1="$G29_R3" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$G29_B8" 2>&1)"
+    jq -n --arg n "${G29_L3% | owner=HANDED BACK} | owner=D123" --arg s 'Exploratory coverage: 0 performed, 0 partial, 1 not performed' \
+      '{completion_notes: $n, completion_summary: $s}' > "$G29_S/.outcomes-W9.json"
+    assert_eq "29y: 29e3 with an owner given to the charter, the block prints true" "$G29_OK" \
+      "$(cd "$G29_D" && G29_R1="$G29_R3" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$G29_B8" 2>&1)"
     rm -f "$G29_S/.outcomes-W9.json"
     assert_eq "29e4: and false when the agent wrote no outcomes file" "$G29_NO" \
       "$(cd "$G29_D" && G29_R1="$G29_R1" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$G29_B8" 2>&1)"
+    jq -n --arg n "$G29_L1" --arg s "$G29_C1" '{completion_notes: $n, completion_summary: $s}' > "$G29_S/.outcomes-W9.json"
+    assert_eq "29y: 29e4 with the agent's outcomes file written, the real block prints true" "$G29_OK" \
+      "$(cd "$G29_D" && G29_R1="$G29_R1" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$G29_B8" 2>&1)"
+    rm -f "$G29_S/.outcomes-W9.json"
+
+    # --- 29e4-29e13: each of the Step 8 block's own guards, pinned by running it ---
+    # The real checker fails closed on a missing payload by itself, so a
+    # missing-file case run through it passes with the block's guard deleted
+    # (W2681's review cap). G29_B8S is the same block with a stub checker that
+    # always prints true pasted in, so whatever it prints false, a guard
+    # printed. The symlink cases run the real checker on a sound record behind
+    # the link: with the guard gone it reads that record and prints true.
+    # 29e7, 29e8 and 29e9 delete each file guard from a copy of the block and show the case
+    # that pins it flips to true. Every link and directory is under $G29_D.
+    G29_STUB="exploratory_outcomes_ok() { echo 'exploratory_outcomes_ok: true'; }"
+    G29_B8S=${G29_B8/"$G29_FN"/$G29_STUB}
+    assert_eq "29e4: the stub checker stands in for the real one in a copy of the block" "yes" \
+      "$([ "$G29_B8S" != "$G29_B8" ] && printf '%s\n' "$G29_B8S" | grep -qxF -- "$G29_STUB" && echo yes || echo no)"
+    g29_b8() { # $1=block $2=directory to run it from $3=report path; prints what the block prints
+      ( cd "$2" && G29_R1="$3" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$1" 2>&1 )
+    }
+    g29_sound() { # $1=file: write a sound record for r1 alone there
+      jq -n --arg n "$G29_L1" --arg s "$G29_C1" '{completion_notes: $n, completion_summary: $s}' > "$1"
+    }
+    g29_bmut() { # $1=old $2=new $3=block: the block with old replaced, or MISSING
+      local m=${3/"$1"/"$2"}
+      if [ "$m" = "$3" ]; then echo MISSING; else printf '%s\n' "$m"; fi
+    }
+    G29_O8="$G29_S/.outcomes-W9.json"
+    # Each anchor names one guard alone, so deleting another guard leaves it found.
+    G29_G_NOFILE='[ ! -f "$OUT" ] || '
+    G29_G_LFILE=' || [ -L "$OUT" ]; then'
+    G29_G_LDIR=' || [ -L "$ROOT/.stride" ] \'
+    G29_G_NODIR=' || [ ! -d "$ROOT/.stride" ]'
+    G29_G_ROOT='[ -z "$ROOT" ] || '
+    G29_G_STEM=' || [ -z "$OC_STEM" ]'
+    # missing outcomes file
+    rm -f "$G29_O8"
+    assert_eq "29e4: the Step 8 block prints false for a missing outcomes file" "$G29_NO" "$(g29_b8 "$G29_B8S" "$G29_D" "$G29_R1")"
+    assert_eq "29e7: break-it -- without the missing-file guard, the missing file reaches the stub and prints true" "$G29_OK" \
+      "$(g29_b8 "$(g29_bmut "$G29_G_NOFILE" '' "$G29_B8S")" "$G29_D" "$G29_R1")"
+    g29_sound "$G29_O8"
+    assert_eq "29y: 29e4 with the outcomes file written, the stub's true gets through" "$G29_OK" "$(g29_b8 "$G29_B8S" "$G29_D" "$G29_R1")"
+    # outcomes file is a symlink to a sound record
+    rm -f "$G29_O8"; g29_sound "$G29_D/real-outcomes.json"; ln -s "$G29_D/real-outcomes.json" "$G29_O8"
+    assert_eq "29e4: the Step 8 block prints false when the outcomes file is a symlink" "$G29_NO" "$(g29_b8 "$G29_B8" "$G29_D" "$G29_R1")"
+    assert_eq "29e8: break-it -- without the file-symlink guard, the checker reads the record behind the link and prints true" "$G29_OK" \
+      "$(g29_b8 "$(g29_bmut "$G29_G_LFILE" '; then' "$G29_B8")" "$G29_D" "$G29_R1")"
+    rm -f "$G29_O8"; cp "$G29_D/real-outcomes.json" "$G29_O8"
+    assert_eq "29y: 29e4 with the same record as a regular file, the block prints true" "$G29_OK" "$(g29_b8 "$G29_B8" "$G29_D" "$G29_R1")"
+    # .stride is a symlink to a real .stride holding a sound record
+    G29_LD="$G29_D/lnk"; mkdir -p "$G29_LD"; touch "$G29_LD/.stride.md"; rm -f "$G29_LD/.stride"; ln -s "$G29_S" "$G29_LD/.stride"
+    assert_eq "29e4: the Step 8 block prints false when .stride is a symlink" "$G29_NO" "$(g29_b8 "$G29_B8" "$G29_LD" "$G29_R1")"
+    assert_eq "29e9: break-it -- without the .stride-symlink guard, the checker reads through the link and prints true" "$G29_OK" \
+      "$(g29_b8 "$(g29_bmut "$G29_G_LDIR" ' \' "$G29_B8")" "$G29_LD" "$G29_R1")"
+    rm -f "$G29_LD/.stride"; mkdir -p "$G29_LD/.stride"; cp "$G29_O8" "$G29_LD/.stride/.outcomes-W9.json"
+    assert_eq "29y: 29e4 with the same root's .stride a real directory holding the record, the block prints true" "$G29_OK" "$(g29_b8 "$G29_B8" "$G29_LD" "$G29_R1")"
+    # edge cases: a dangling link at the outcomes path, and a .stride that is a regular file
+    rm -f "$G29_O8"; ln -s "$G29_D/no-such-outcomes.json" "$G29_O8"
+    assert_eq "29e5: the Step 8 block prints false when the outcomes path is a dangling symlink" "$G29_NO" "$(g29_b8 "$G29_B8S" "$G29_D" "$G29_R1")"
+    rm -f "$G29_O8"; g29_sound "$G29_O8"
+    assert_eq "29y: 29e5 with a regular file in place of the dangling link, the stub's true gets through" "$G29_OK" "$(g29_b8 "$G29_B8S" "$G29_D" "$G29_R1")"
+    G29_FD="$G29_D/flat"; mkdir -p "$G29_FD"; touch "$G29_FD/.stride.md" "$G29_FD/.stride"
+    assert_eq "29e6: the Step 8 block prints false when .stride is a regular file" "$G29_NO" "$(g29_b8 "$G29_B8S" "$G29_FD" "$G29_R1")"
+    rm -f "$G29_FD/.stride"; mkdir -p "$G29_FD/.stride"; g29_sound "$G29_FD/.stride/.outcomes-W9.json"
+    assert_eq "29y: 29e6 with .stride a directory holding the record, the stub's true gets through" "$G29_OK" "$(g29_b8 "$G29_B8S" "$G29_FD" "$G29_R1")"
+    # 29e10-29e13: the two guards the file guards above would mask. An empty
+    # stem names .outcomes-.json, so a regular file there reaches the stub
+    # unless -z OC_STEM refuses it. An unrooted run is caught by the file
+    # guards too, so 29e11 runs a copy with ! -d and ! -f deleted, from a
+    # directory with no .stride.md above it: only -z ROOT is left to refuse.
+    G29_B8E=${G29_B8S/OC_IDENT=W9/OC_IDENT=bad.id}
+    g29_sound "$G29_S/.outcomes-.json"
+    assert_eq "29e10: the Step 8 block prints false when the identifier and numeric id are both unusable" "$G29_NO" "$(g29_b8 "$G29_B8E" "$G29_D" "$G29_R1")"
+    assert_eq "29e12: break-it -- without the empty-stem guard, .outcomes-.json reaches the stub and prints true" "$G29_OK" \
+      "$(g29_b8 "$(g29_bmut "$G29_G_STEM" '' "$G29_B8E")" "$G29_D" "$G29_R1")"
+    rm -f "$G29_S/.outcomes-.json"; g29_sound "$G29_O8"
+    assert_eq "29y: 29e10 with a plain identifier, the stub's true gets through" "$G29_OK" "$(g29_b8 "$G29_B8S" "$G29_D" "$G29_R1")"
+    G29_B8R=$(g29_bmut "$G29_G_NOFILE" '' "$(g29_bmut "$G29_G_NODIR" '' "$G29_B8S")")
+    G29_NR="$TMPDIR_TEST/g29-noroot"; mkdir -p "$G29_NR"
+    assert_eq "29e11: with the directory and file guards deleted, the block still prints false where no root is found" "$G29_NO" "$(g29_b8 "$G29_B8R" "$G29_NR" "$G29_R1")"
+    assert_eq "29e13: break-it -- without the empty-root guard too, the unrooted run reaches the stub and prints true" "$G29_OK" \
+      "$(g29_b8 "$(g29_bmut "$G29_G_ROOT" '' "$G29_B8R")" "$G29_NR" "$G29_R1")"
+    assert_eq "29y: 29e11 run from inside a root, the same copy's stub true gets through" "$G29_OK" "$(g29_b8 "$G29_B8R" "$G29_D" "$G29_R1")"
+    rm -f "$G29_O8"
 
     # --- 29u: mutating the extracted function proves the fixture cases bite ---
     g29_fmut() { # $1=old $2=new; prints the checker's verdict on the current p.json and $3...
@@ -6673,11 +6767,80 @@ ${G29_L3% | owner=HANDED BACK}" "$G29_COV"
 Exploratory testing skipped: no reason" "$G29_COV"
     assert_eq "29u8: without the no-skip-beside-charters rule, 29m3 would pass" "$G29_OK" \
       "$(g29_fmut 'else $skips == 0 and' 'else' "$G29_R1" "$G29_R2" "$G29_R3")"
+
+    # --- 29y: every false-polarity fixture, with its defect removed, is true ---
+    # A fixture that is false for some reason besides the defect it plants
+    # proves nothing about that defect. Each case rebuilds one false fixture
+    # of 29l-29s7 with that defect removed -- and, where removing it changes the
+    # count, the coverage line recounted -- and shows the checker then prints
+    # true, so the fixture's own assertion would fail. The 29e cases carry
+    # theirs inline above. 29z checks every false case has one.
+    g29_pay "Implemented.
+$G29_L1
+$G29_L2
+$G29_L3
+$G29_HB" "Exploratory coverage: 1 performed, 1 partial, 1 not performed"
+    assert_eq "29y: 29l3 with the r2 line restored and counted, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    assert_eq "29y: 29l4 and the same record exits 0" "0" "$(exploratory_outcomes_ok "$G29_D/p.json" "$G29_R1" "$G29_R2" "$G29_R3" >/dev/null 2>&1; echo $?)"
+    g29_pay "Done.
+Exploratory testing skipped: the plugin is not installed" "Did it."
+    assert_eq "29y: 29m2 with a skip line added, the record is true" "$G29_OK" "$(g29)"
+    g29_pay "$G29_NOTES" "$G29_COV"
+    assert_eq "29y: 29m3 with the skip line beside the charters removed, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "Exploratory testing skipped: the plugin is not installed" "Did it."
+    assert_eq "29y: 29m4 with a reason after the skip prefix, the record is true" "$G29_OK" "$(g29)"
+    g29_pay "$G29_U1
+$G29_U2
+HANDED BACK: u1 run Step 6.5 in a Codex CLI session
+HANDED BACK: u2 sign in and check the settings page" "Exploratory coverage: 0 performed, 0 partial, 2 not performed"
+    assert_eq "29y: 29n2 with the coverage line claiming none performed, the record is true" "$G29_OK" "$(g29)"
+    g29_pay "$G29_U1
+HANDED BACK: u1 x" "Exploratory coverage: 0 performed, 0 partial, 1 not performed"
+    assert_eq "29y: 29n3 with the undispatched charter back at zero probes, the record is true" "$G29_OK" "$(g29)"
+    g29_pay "$G29_L1
+$G29_L2
+${G29_L3/owner=HANDED BACK/owner=D123}" "$G29_COV"
+    assert_eq "29y: 29o with an owner given to the not-performed charter, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_L1
+$G29_L2
+$G29_L3
+$G29_HB" "$G29_COV"
+    assert_eq "29y: 29o2 with the HANDED BACK line added, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_L1
+$G29_L2
+$G29_L3
+HANDED BACK: r3 something else" "$G29_COV"
+    assert_eq "29y: 29o3 with the HANDED BACK line under its own key, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_NOTES" "$G29_COV"
+    assert_eq "29y: 29p with the coverage line counted right, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_NOTES" "Did it.
+$G29_COV"
+    assert_eq "29y: 29p2 with the coverage line moved to completion_summary, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_NOTES" "$G29_COV"
+    assert_eq "29y: 29p3 with one coverage line, the record is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_L2" "Exploratory coverage: 0 performed, 1 partial, 0 not performed"
+    assert_eq "29y: 29q with the exhausted budget claimed partial, the record is true" "$G29_OK" "$(g29 "$G29_R2")"
+    g29_pay "${G29_L3/owner=HANDED BACK/owner=D123}" "Exploratory coverage: 0 performed, 0 partial, 1 not performed"
+    assert_eq "29y: 29q2 with the blocked charter claimed not performed, owned and counted, the record is true" "$G29_OK" "$(g29 "$G29_R3")"
+    g29_pay "$G29_L1" "$G29_C1"
+    assert_eq "29y: 29q4 with the report's probe count, the record is true" "$G29_OK" "$(g29 "$G29_R1")"
+    g29_pay 'Exploratory charter r4: the progress bar | stop_reason=no_observation_surface | probes=3 | surfaces=http | outcome=partial
+Visual pass r4: the bar filled to the end' "Exploratory coverage: 0 performed, 1 partial, 0 not performed"
+    assert_eq "29y: 29q5 with a visual pass line for r4, the record is true" "$G29_OK" "$(g29 "$G29_R4")"
+    g29_pay "$G29_RED" "$G29_C1"
+    assert_eq "29y: 29r2 with the redacted line kept, the record is true" "$G29_OK" "$(g29 "$G29_R1")"
+    g29_pay "Exploratory charter r5: the fence session | stop_reason=charter_quiet | probes=4 | surfaces=http | outcome=performed" "$G29_C1"
+    assert_eq "29y: 29s with the fence object written to r5's path, the record is true" "$G29_OK" "$(g29 "$G29_R5")"
+    g29_pay "$G29_L1" "$G29_C1"
+    assert_eq "29y: 29s3 with the prefix as written, the record is true" "$G29_OK" "$(g29 "$G29_R1")"
+    assert_eq "29y: 29s4 with the absolute report path, the record is true" "$G29_OK" "$(cd "$G29_D" && exploratory_outcomes_ok "$G29_D/p.json" "$G29_D/.stride/.exploratory-W9-r1.json" 2>&1)"
+    assert_eq "29y: 29s5 with the report inside .stride, the record is true" "$G29_OK" "$(g29 "$G29_R1")"
+    assert_eq "29y: 29s6 with the outcomes file present, the record is true" "$G29_OK" "$(exploratory_outcomes_ok "$G29_D/p.json" "$G29_R1" 2>&1)"
   else
-    echo "  SKIP: 29l-29u: jq not installed -- the checker needs it"
+    echo "  SKIP: 29e2-29e13, 29l-29u8 and 29y: jq not installed -- the checker needs it"
   fi
 
-  # --- 29v-29w9: break-it on mutated COPIES of the skills ---
+  # --- 29v-29w17: break-it on mutated COPIES of the skills ---
   G29_TMP="$TMPDIR_TEST/g29m"; mkdir -p "$G29_TMP"
   g29_neg() {
     local w="$G29_WF" s="$G29_SW" c="$G29_CT" r=""
@@ -6745,6 +6908,40 @@ Call `PATCH /api/tasks/:id/complete` with ALL required fields:'
     'a symlink at either means do not write and do not submit' 'write it anyway'
   assert_eq "29x: the break-it cases left the real skill files untouched" "$G29_SUM_BEFORE" \
     "$(cksum < "$G29_WF") $(cksum < "$G29_SW") $(cksum < "$G29_CT")"
+
+  # --- 29z-29z2: this group's own text, read from this file ---
+  # 29z: every case expecting false (or exit 1) has a 29y twin naming it, one
+  # twin per case -- the ids are compared with their repeats, so a second false
+  # case under an id that already has a twin needs its own. It reads assert_eq
+  # lines (never comments), joining a line that ends in a backslash to the
+  # next first, so an expected value on the line after the label is read too:
+  # a false case is one expecting G29_NO in any spelling, a literal false
+  # verdict or exit 1, and a twin counts only when it expects G29_OK, a
+  # literal true verdict or exit 0.
+  # 29z2: each case range a comment or SKIP line gives starts and ends at a
+  # case that exists, and its end is that series' last case: a numbered end
+  # its highest number, and a bare end (29s) only a series with no numbers.
+  G29_SRC=$(awk 'index($0, "# Test Group 29:") == 1 { f = 1 } f { print } f && /^  echo "  SKIP: Test Group 29 / { exit }' "$SCRIPT_DIR/test-stride-hook.sh")
+  G29_ASSERTS=$(printf '%s\n' "$G29_SRC" | awk '{ if (sub(/\\$/, "")) { b = b $0; next } print b $0; b = "" }')
+  G29_NEG=$(printf '%s\n' "$G29_ASSERTS" | sed -nE 's/^ *assert_eq "(29[a-z][0-9]*): [^"]*" +("[^"]*"|[^ "]+).*/\1 \2/p' \
+    | awk '$1 != "29y" && ($2 ~ /G29_NO|exploratory_outcomes_ok: false/ || $2 == "\"1\"" || $2 == "1") { print $1 }' | sort)
+  G29_TWIN=$(printf '%s\n' "$G29_ASSERTS" | sed -nE 's/^ *assert_eq "29y: (29[a-z][0-9]*) [^"]*" +("[^"]*"|[^ "]+).*/\1 \2/p' \
+    | awk '$2 ~ /G29_OK|exploratory_outcomes_ok: true/ || $2 == "\"0\"" || $2 == "0" { print $1 }' | sort)
+  assert_eq "29z: break_it -- every false-polarity fixture fails when its defect is removed: each has a 29y twin" \
+    "yes|$(echo $G29_NEG)" "$([ "$(printf '%s\n' "$G29_NEG" | grep -c .)" -ge 25 ] && echo yes || echo no)|$(echo $G29_TWIN)"
+  G29_IDS=$(printf '%s\n' "$G29_SRC" | grep -oE '"29[a-z][0-9]*: ' | tr -d '": ' | sort -u)
+  G29_RANGES=$(printf '%s\n' "$G29_SRC" | grep -E '^ *#|SKIP:' | grep -oE '29[a-z][0-9]*-29[a-z][0-9]*')
+  G29_STALE=""
+  for G29_RG in $G29_RANGES; do
+    G29_A=${G29_RG%-*}; G29_E=${G29_RG#*-}
+    printf '%s\n' "$G29_IDS" | grep -qx -- "$G29_A" || { G29_STALE="$G29_STALE $G29_RG"; continue; }
+    printf '%s\n' "$G29_IDS" | grep -qx -- "$G29_E" || { G29_STALE="$G29_STALE $G29_RG"; continue; }
+    G29_SER=$(printf '%s' "$G29_E" | sed 's/[0-9]*$//'); G29_N=${G29_E#"$G29_SER"}
+    G29_HI=$(printf '%s\n' "$G29_IDS" | sed -n "s/^$G29_SER\([0-9][0-9]*\)\$/\1/p" | sort -n | tail -1)
+    [ "${G29_HI:-0}" -le "${G29_N:-0}" ] || G29_STALE="$G29_STALE $G29_RG"
+  done
+  assert_eq "29z2: comments -- no stale case range remains in Group 29" "found|" \
+    "$([ "$(printf '%s\n' "$G29_RANGES" | grep -c .)" -ge 5 ] && echo found || echo none)|$(echo $G29_STALE)"
 else
   echo "  SKIP: Test Group 29 (a skill or the rationale doc is missing)"
 fi
