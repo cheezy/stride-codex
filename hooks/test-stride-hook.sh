@@ -8306,6 +8306,440 @@ else
   echo "  SKIP: Test Group 33 (a skill, the rationale, AGENTS.md or the changelog is missing)"
 fi
 
+# ============================================================================
+# Test Group 34: D406 -- completion free text comes from a file, never a shell
+# literal
+# ============================================================================
+# The API Request Format example passed completion_notes, completion_summary
+# and review_report through single-quoted --arg values, and hook output and
+# subagent summaries through the single-quoted jq filter, so a `'` in any of
+# them ended the literal and the shell ran what followed. The fix makes Step
+# 8's outcomes file, written with the file-editing tool, the one file every
+# completion reads its free text from (`$oc[0] + {...}`, `--slurpfile oc`),
+# found by Step 8's own root and stem lines and guarded against a missing,
+# malformed or symlinked file; and the after_goal PATCH stops word-splitting
+# the hook output into jq's arguments. 34a-34h pin each rule (g34_check
+# returns the failing ids), and 34i sweeps every shell fence in every plugin
+# markdown file but the changelog: any fence that calls curl on /complete or
+# /mark_reviewed must read the file and pass only the three chosen --arg
+# values; 34c pins the changelog entry; 34j-34k12 run the
+# EXTRACTED example with curl stubbed: a hostile file builds a valid body byte
+# for byte and runs nothing, a skipped review omits review_report, a missing,
+# empty, malformed or symlinked file or a non-plain stem sends nothing, and a
+# subdirectory cwd or CODEX_PROJECT_DIR still finds the file, reads the
+# root's changed-files snapshot, tees at the root and leaves the caller's
+# directory alone, and a refusal exits non-zero; 34l runs both
+# extracted after_goal PATCH blocks on output holding spaces, a glob and
+# quotes; 34m shows the old quoted-`--arg` shape really does run a hostile
+# note, so 34j2's "ran nothing" could have failed; 34n-34n27, 34n5b and 34c2 break
+# COPIES and show that the checks they name can fail (not every id has a
+# break of its own); 34z shows the real files were never written. Reuses
+# Group 27's g27_slice, g27_count and g27_mut.
+# What this does NOT prove: that an agent writes the file with its
+# file-editing tool in a live Codex CLI session (no Codex CLI here).
+echo ""
+echo "=== Test Group 34: completion notes, summary and review report are read from a file, never a shell literal (D406) ==="
+
+G34_CT="$PORT_ROOT/skills/stride-completing-tasks/SKILL.md"
+G34_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G34_RAT="$PORT_ROOT/docs/orchestrator-rationale.md"
+G34_CL="$PORT_ROOT/CHANGELOG.md"
+G34_RM="$PORT_ROOT/README.md"
+G34_AG="$PORT_ROOT/AGENTS.md"
+G34_CF='--argjson cf "$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo '"'"'[]'"'"')"'
+G34_TEE='| tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"'
+G34_GUARD='if [ -z "$ROOT" ] || [ -z "$OC_STEM" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ] \'
+G34_GUARD2='   || [ ! -f "$OC" ] || [ -L "$OC" ] \'
+G34_VALID="   || ! jq -se 'length == 1 and (.[0] | type) == \"object\" and (.[0].completion_notes | type) == \"string\" and (.[0].completion_summary | type) == \"string\"' \"\$OC\" >/dev/null 2>&1; then"
+G34_MERGE="    '\$oc[0] + {"
+G34_AGNEW='-d "$(jq -n --arg out "$OUTPUT" --argjson ec "$EXIT_CODE" --argjson ms "$DURATION_MS" \'
+G34_AGOLD='--arg out \"$OUTPUT\"'
+
+# g34_fence <file> <lead>: the first ```bash (or ```text) fence after the first line holding lead
+g34_fence() {
+  G34_LEAD="$2" awk '
+    f == 0 && index($0, ENVIRON["G34_LEAD"]) { f = 1; next }
+    f == 1 && /^```(bash|text)/ { f = 2; next }
+    f == 2 && /^```/ { exit }
+    f == 2 { print }' "$1"
+}
+g34_once() { [ "$(g27_count "$2" "$3")" = "1" ] || G34_FAILS="$G34_FAILS $1"; }
+g34_none() { if grep -qF -- "$2" <<< "$3"; then G34_FAILS="$G34_FAILS $1"; fi; }
+# G34_SWEEP: every shell fence that calls curl on /complete or /mark_reviewed
+# prints HIT, and one BAD line per rule it breaks (read with awk "$G34_SWEEP")
+read -r -d '' G34_SWEEP <<'G34EOF'
+# Every shell fence (bash, sh, shell, zsh, console or no language) whose non-comment lines call curl on /complete or
+# /mark_reviewed: prints "HIT file:line" and one "BAD file:line reason" per rule broken.
+FNR == 1 { inb = 0 }
+inb == 0 && /^[[:space:]]*```/ {
+  lang = $0; sub(/^[[:space:]]*```+/, "", lang); sub(/[[:space:]].*$/, "", lang)
+  inb = 1; start = FNR; n = 0; shellish = (lang ~ /^(bash|sh|shell|zsh|console)?$/); next
+}
+inb == 1 && /^[[:space:]]*```/ { if (shellish) check(); inb = 0; next }
+inb == 1 { L[++n] = $0 }
+function bad(why) { print "BAD " FILENAME ":" start " " why }
+function check(   i, s, hit, all, t, w, rest) {
+  hit = 0; all = ""
+  for (i = 1; i <= n; i++) {
+    s = L[i]; if (s ~ /^[[:space:]]*#/) continue
+    all = all "\n" s
+    if (s ~ /curl/ && (s ~ /\/complete/ || s ~ /\/mark_reviewed/)) hit = 1
+  }
+  if (!hit) return
+  print "HIT " FILENAME ":" start
+  if (!index(all, "--slurpfile oc ")) bad("no_slurpfile")
+  if (!index(all, "'$oc[0] + {")) bad("no_merge")
+  for (i = 1; i <= n; i++) {
+    s = L[i]; if (s ~ /^[[:space:]]*#/) continue
+    if (s ~ /--(args|jsonargs|rawfile|data|json)([[:space:]=]|$)/ || s ~ /--data-/) bad("forbidden_option")
+    if (s ~ /\$ENV|env\./) bad("env_read")
+    if (s ~ /"?(completion_notes|completion_summary|review_report|output|summary|reason)"?[[:space:]]*:/) bad("free_text_key")
+    if ((s ~ /^[[:space:]]*-d[[:space:]]/ || (s ~ /curl/ && s ~ /[[:space:]]-d[[:space:]]/)) && !index(s, "-d \"$(jq -n")) bad("body_not_jq")
+    rest = s
+    while (match(rest, /--(arg|argjson|slurpfile)[[:space:]]+[^[:space:]]+/)) {
+      t = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
+      split(t, w, /[[:space:]]+/)
+      if (w[1] == "--arg" && w[2] !~ /^(agent_name|complexity|files)$/) bad("arg_" w[2])
+      if (w[1] == "--argjson" && w[2] != "cf") bad("argjson_" w[2])
+      if (w[1] == "--slurpfile" && w[2] != "oc") bad("slurpfile_" w[2])
+    }
+  }
+}
+G34EOF
+# g34_mds <ct> <wf> <rat> <readme> <agents>: NUL-separated, every plugin .md but
+# the changelog, the five named files standing in for their real copies
+g34_mds() {
+  local f
+  printf '%s\0' "$@"
+  while IFS= read -r -d '' f; do
+    case "$f" in "$G34_CT"|"$G34_WF"|"$G34_RAT"|"$G34_RM"|"$G34_AG"|"$G34_CL") continue ;; esac
+    printf '%s\0' "$f"
+  done < <(find "$PORT_ROOT" -name '*.md' -not -path '*/.git/*' -print0)
+}
+
+# g34_check <ct> <wf> <rat> <readme> <agents>: OK, or the sorted failing ids.
+# n_ no free-text --arg, s_ the slurpfile read, k_ cf and tee kept, p_ the
+# prose rule, r_ the reconciled Step 6.5 paragraph, w_ Step 8's file shape,
+# a_ the after_goal PATCH, t_ the rationale.
+g34_check() {
+  local ct="$1" wf="$2" rat="$3" rm="$4" ag="$5" api frag s8 arf ctag wfag all l s8b sw
+  G34_FAILS=""
+  api=$(g34_fence "$ct" '## API Request Format')
+  frag=$(g34_fence "$ct" '**Why inline?** When you assemble the completion curl')
+  s8=$(g27_slice "$wf" '## Step 8:' '## Step 9:')
+  arf=$(g27_slice "$ct" '## API Request Format' '## Per-File Diff Capture (Manual)')
+  ctag=$(g34_fence "$ct" '5. **POST**: Forward the captured result to flip the parent goal to Done:')
+  wfag=$(g34_fence "$wf" '5. **POST**: Forward the captured result to the server:')
+  s8b=$(g34_fence "$wf" '**Check the exploratory record before the call')
+  for l in api frag s8 arf ctag wfag s8b; do
+    eval "[ -n \"\$$l\" ]" || G34_FAILS="$G34_FAILS scope_$l"
+  done
+  all=$(cat "$ct" "$wf" "$rm" "$ag")
+
+  # n_: no completion example passes notes, summary or report on --arg, and no
+  # free-text field is written into either fence's jq filter at all (and the
+  # full example's filter holds no string literal: its own values are --arg)
+  if grep -qE -- "--arg (notes|summary|report)( |$)" <<< "$all"; then G34_FAILS="$G34_FAILS n_arg"; fi
+  l=$(grep -E '(completion_notes|completion_summary|review_report|output|summary|reason): ' <<< "$api
+$frag")
+  if [ -n "$l" ]; then G34_FAILS="$G34_FAILS n_field"; fi
+  if grep -qE '[a-z_]+: "' <<< "$api"; then G34_FAILS="$G34_FAILS n_literal"; fi
+
+  # x_: the sweep over every shell fence in every plugin .md (but the changelog)
+  sw=$(g34_mds "$ct" "$wf" "$rat" "$rm" "$ag" | xargs -0 awk "$G34_SWEEP")
+  grep -q '^HIT ' <<< "$sw" || G34_FAILS="$G34_FAILS scope_sweep"
+  for l in $(awk '$1 == "BAD" { print "x_" $3 }' <<< "$sw"); do G34_FAILS="$G34_FAILS $l"; done
+
+  # s_: both fences merge the file read with --slurpfile oc; the example finds
+  # it with Step 8's own root and stem lines and refuses a bad file
+  g34_once s_api_path 'OC="$ROOT/.stride/.outcomes-$OC_STEM.json"' "$api"
+  [ -n "$s8b" ] && [ "$(printf '%s\n' "$api" | head -15)" = "$(printf '%s\n' "$s8b" | head -15)" ] \
+    || G34_FAILS="$G34_FAILS s_same"
+  g34_once s_api '--slurpfile oc "$OC" \' "$api"
+  g34_once s_frag '--slurpfile oc "${CLAUDE_PROJECT_DIR:-.}/.stride/.outcomes-<IDENTIFIER>.json" \' "$frag"
+  g34_once s_guard "$G34_GUARD" "$api"
+  g34_once s_guard2 "$G34_GUARD2" "$api"
+  g34_once s_valid "$G34_VALID" "$api"
+  g34_once s_merge_api "$G34_MERGE" "$api"
+  g34_once s_merge_frag "$G34_MERGE" "$frag"
+  g34_once s_cd '( cd "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \' "$api"
+  g34_once s_false "  echo 'completion text file missing, malformed or a symlink: not submitting' >&2; false" "$api"
+  [ "$(awk 'index($0, "A fragment, not a command — the `text` fence is deliberate:") { f = 1; next } f && NF { print; exit }' "$ct")" = '```text' ] \
+    || G34_FAILS="$G34_FAILS s_frag_text"
+
+  # k_: the changed-files read and the tee capture are kept
+  g34_once k_cf_api "$G34_CF" "$api"
+  g34_once k_cf_frag "$G34_CF" "$frag"
+  g34_once k_tee "  $G34_TEE" "$api"
+  g34_once k_close "  $G34_TEE )" "$api"
+
+  # p_: the rule, stated once, beside the example
+  g34_once p_rule '**Write the free text to a file first — never into a shell literal (D406).**' "$arf"
+  g34_once p_noshell 'none of it travels through a shell `echo`, `printf`, heredoc, quoted `--arg` or the single-quoted jq filter' "$arf"
+  g34_once p_tool 'Before the curl, **write `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool**' "$arf"
+  g34_once p_fields 'and `after_doing_result`, `before_review_result`, `explorer_result`, `reviewer_result` and `workflow_steps` in their documented shapes' "$arf"
+  g34_once p_chosen 'adding only the values you choose yourself — `agent_name`, `time_spent_minutes`, `actual_complexity`, `actual_files_changed` and `changed_files`' "$arf"
+  g34_once p_same $'**The block finds the file exactly as Step 8\'s block does**' "$arf"
+  g34_once p_link 'send the full block from there, with its root and stem lines, its missing-file, malformed-file and symlink guard and its `| tee`, never this fragment' "$(cat "$ct")"
+  g34_once p_keep 'never move a free-text field back onto one, or into the jq filter' "$arf"
+  g34_once p_s8 '**Every completion builds its body from the outcomes file, whether or not Step 6.5 fired**' "$s8"
+  g34_none p_mistake "-d '{...both results...}'" "$(cat "$ct")"
+
+  # r_: the Step 6.5 paragraph is the same file, not a swap
+  g34_once r_same 'The file above is the same file `stride-workflow` Step 8 checks — one file, one stem, one cleanup line' "$arf"
+  g34_once r_keys 'The checker reads only `completion_notes` and `completion_summary`, so the other keys in the same file change no verdict.' "$arf"
+  g34_none r_old 'replace `--arg notes …` and `--arg summary …` above' "$(cat "$ct")"
+
+  # w_: Step 8's file is the one every completion reads its free text from
+  g34_once w_shape $'plus `review_report` when a reviewer ran and the body\'s other free-text fields, as `stride-completing-tasks` § API Request Format lists them (it is the one file every completion reads its free text from, and the checker reads only the first two keys)' "$s8"
+  g34_none w_old 'a JSON object with exactly two string keys' "$(cat "$wf")"
+
+  # a_: the after_goal PATCH quotes the output and passes the numbers as JSON
+  g34_once a_ct "$G34_AGNEW" "$ctag"
+  g34_once a_wf "$G34_AGNEW" "$wfag"
+  g34_none a_old "$G34_AGOLD" "$all"
+
+  # t_: the rationale says why it is one file
+  g34_once t_rat 'Since D406 it is the file every completion reads its free text from, checked or not, and it carries the review report, the hook results, the explorer and reviewer results and the telemetry steps too' "$(cat "$rat")"
+
+  if [ -z "$G34_FAILS" ]; then echo OK; else printf '%s\n' $G34_FAILS | sort -u | tr '\n' ' '; fi
+}
+
+if [ -f "$G34_CT" ] && [ -f "$G34_WF" ] && [ -f "$G34_RAT" ] && [ -f "$G34_CL" ] && [ -f "$G34_RM" ] && [ -f "$G34_AG" ]; then
+  G34_SUM_BEFORE="$(cksum < "$G34_CT") $(cksum < "$G34_WF") $(cksum < "$G34_RAT") $(cksum < "$G34_RM") $(cksum < "$G34_AG") $(cksum < "$G34_CL")"
+  G34_REAL=$(g34_check "$G34_CT" "$G34_WF" "$G34_RAT" "$G34_RM" "$G34_AG")
+  g34_ok() { # <label> <prefix>...: no failing id on the real files starts with a prefix
+    local label="$1" bad="" id pre; shift
+    for id in $G34_REAL; do
+      [ "$id" = OK ] && continue
+      for pre in "$@" scope_; do case "$id" in "$pre"*) bad="$bad $id" ;; esac; done
+    done
+    assert_eq "$label" "" "$bad"
+  }
+  g34_ok "34a: no completion example in stride-completing-tasks, stride-workflow, README or AGENTS uses --arg notes, --arg summary or --arg report, and neither fence writes free text into its jq filter" n_
+  g34_ok "34b: the completion examples read the free-text fields with --slurpfile from Step 8's outcomes file, found by Step 8's own root and stem lines, behind a missing, malformed and symlinked-file guard" s_
+  g34_ok "34d: the example still keeps --argjson cf and the | tee capture" k_
+  g34_ok "34e: the rule is stated beside the example, and the fragment points at the full block" p_
+  g34_ok "34f: the Step 6.5 paragraph and Step 8 name one file for every completion" r_ w_ t_
+  g34_ok "34g: the after_goal PATCH quotes the hook output and passes the numbers with --argjson" a_
+  g34_ok "34i: every shell fence in the plugin's markdown that calls /complete or /mark_reviewed reads the file and passes only agent_name, complexity, files, cf and oc" x_ scope_sweep
+  assert_eq "34h: every rule found exactly once in its section" "OK" "$G34_REAL"
+  assert_eq "34c: the changelog carries one D406 entry under [Unreleased]" "1" \
+    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G34_CL" | grep -c '^### Fixed — .*(D406)$')"
+
+  if command -v jq >/dev/null 2>&1; then
+    G34_D="$TMPDIR_TEST/g34"; rm -rf "$G34_D"; mkdir -p "$G34_D/.stride" "$G34_D/sub/deep"
+    : > "$G34_D/.stride.md"
+    G34_OCF="$G34_D/.stride/.outcomes-D9.json"
+    G34_NOTES='It'"'"'$(touch '"$G34_D"'/PWNED)'"'"'s done, "quoted", `whoami` and $(touch '"$G34_D"'/PWNED2).'
+    G34_REP='## Review Summary
+Approved \n stays two characters.'
+    G34_HOOK='3 tests, 0 failures; it'"'"'s `id` $(touch '"$G34_D"'/PWNED4) *'
+    # g34_api <block> [cwd] [CODEX_PROJECT_DIR|none]: run an example block with its
+    # two placeholder lines filled (D9 / 9), from cwd (default $G34_D), with
+    # CLAUDE_PROJECT_DIR=$G34_D unless a CODEX_PROJECT_DIR (or none) is given, and curl
+    # stubbed to print its -d body and touch CURLED; prints the body
+    g34_api() {
+      local b="$1" cwd="${2:-$G34_D}" rv="CLAUDE_PROJECT_DIR=$G34_D"
+      case "${3:-}" in ( '' ) ;; ( none ) rv="G34_NOROOT=1" ;; ( * ) rv="CODEX_PROJECT_DIR=$3" ;; esac
+      b=${b/"OC_IDENT='<identifier>'"/"OC_IDENT='${G34_IDENT-D9}'"}
+      b=${b/"OC_ID='<numeric id>'"/"OC_ID='9'"}
+      rm -f "$G34_D/CURLED" "$G34_D/.stride/.last-api-response.json"
+      ( cd "$cwd" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR \
+          "$rv" G34_D="$G34_D" \
+          STRIDE_API_URL='http://stub.invalid' STRIDE_API_TOKEN='stub' TASK_ID=1 bash -c '
+        curl() { while [ $# -gt 0 ]; do [ "$1" = -d ] && { printf "%s" "$2"; : > "$G34_D/CURLED"; }; shift; done; }
+        '"$b" 2>/dev/null )
+    }
+    g34_sent() { [ -e "$G34_D/CURLED" ] && echo present || echo absent; }
+    G34_BLK=$(g34_fence "$G34_CT" '## API Request Format')
+    g34_full() { # write the full free-text half, hostile text in every free-text slot
+      jq -n --arg n "$G34_NOTES" --arg s "One line; it's \"done\"." --arg r "$G34_REP" --arg h "$G34_HOOK" '
+        {completion_notes: $n, completion_summary: $s, review_report: $r,
+         after_doing_result: {exit_code: 0, output: $h, duration_ms: 0},
+         before_review_result: {exit_code: 0, output: $h, duration_ms: 0},
+         explorer_result: {dispatched: false, reason: "self_reported_exploration", summary: $n},
+         reviewer_result: {dispatched: false, reason: "self_reported_review", summary: $n},
+         workflow_steps: [{name: "explorer", dispatched: false, reason: $n}]}' > "$G34_OCF"
+    }
+
+    g34_full
+    rm -f "$G34_D/PWNED" "$G34_D/PWNED2" "$G34_D/PWNED4"
+    G34_BODY=$(g34_api "$G34_BLK")
+    assert_eq "34j: the extracted example builds a valid body from a file whose free text holds a single quote, a double quote, a backtick and \$(...)" "true" \
+      "$(printf '%s' "$G34_BODY" | jq --slurpfile oc "$G34_OCF" 'del(.agent_name, .time_spent_minutes, .actual_complexity, .actual_files_changed, .changed_files) == $oc[0] and .agent_name == "Codex CLI" and .actual_complexity == "small" and .changed_files == []' 2>/dev/null)"
+    assert_eq "34j2: the hostile notes, summaries, reasons and hook output ran nothing" "absent absent absent" \
+      "$([ -e "$G34_D/PWNED" ] && echo present || echo absent) $([ -e "$G34_D/PWNED2" ] && echo present || echo absent) $([ -e "$G34_D/PWNED4" ] && echo present || echo absent)"
+    assert_eq "34j3: a literal backslash-n in the review report reaches the body as two characters, beside a real newline" "true" \
+      "$(printf '%s' "$G34_BODY" | jq '(.review_report | contains("\\n stays")) and (.review_report | contains("Summary\nApproved"))' 2>/dev/null)"
+    assert_eq "34j4: the | tee capture holds the body the curl printed" "$G34_BODY" "$(cat "$G34_D/.stride/.last-api-response.json" 2>/dev/null)"
+
+    jq -n '{completion_notes: "Done.", completion_summary: "Small change, review skipped."}' > "$G34_OCF"
+    assert_eq "34j5: a file with no review_report key omits review_report from the body" "false" \
+      "$(g34_api "$G34_BLK" | jq 'has("review_report")' 2>/dev/null)"
+
+    rm -f "$G34_OCF"
+    g34_api "$G34_BLK" >/dev/null; G34_RC=$?
+    assert_eq "34k: a missing notes file sends nothing" "absent" "$(g34_sent)"
+    assert_eq "34k11: and the refusal exits non-zero" "nonzero" "$([ "$G34_RC" -ne 0 ] && echo nonzero || echo zero)"
+    G34_PAT='>&2; false'; G34_NEW='>&2'
+    G34_NOFALSE=${G34_BLK/"$G34_PAT"/"$G34_NEW"}
+    g34_api "$G34_NOFALSE" >/dev/null; G34_RC=$?
+    assert_eq "34n19: break-it -- without the false the refusal exits zero" "zero" "$([ "$G34_RC" -ne 0 ] && echo nonzero || echo zero)"
+    printf '%s\n' '{"completion_notes":"x","completion_summary":"y"}' > "$G34_D/elsewhere.json"
+    ln -s "$G34_D/elsewhere.json" "$G34_OCF"
+    g34_api "$G34_BLK" >/dev/null
+    assert_eq "34k2: a notes file that is a symlink sends nothing" "absent" "$(g34_sent)"
+    rm -f "$G34_OCF"
+    mv "$G34_D/.stride" "$G34_D/real-stride"; ln -s "$G34_D/real-stride" "$G34_D/.stride"
+    cp "$G34_D/elsewhere.json" "$G34_D/real-stride/.outcomes-D9.json"
+    g34_api "$G34_BLK" >/dev/null
+    assert_eq "34k3: a .stride/ that is a symlink sends nothing" "absent" "$(g34_sent)"
+    rm -f "$G34_D/.stride"; mv "$G34_D/real-stride" "$G34_D/.stride"
+    g34_api "$G34_BLK" >/dev/null
+    assert_eq "34k4: the same file as a regular file sends (so 34k-34k3 could have failed)" "present" "$(g34_sent)"
+    : > "$G34_OCF"; g34_api "$G34_BLK" >/dev/null
+    assert_eq "34k5: an empty file sends nothing" "absent" "$(g34_sent)"
+    printf '%s\n' '{"completion_notes":5,"completion_summary":"y"}' > "$G34_OCF"; g34_api "$G34_BLK" >/dev/null
+    assert_eq "34k6: a file whose notes are not a string sends nothing" "absent" "$(g34_sent)"
+    printf '%s\n%s\n' '{"completion_notes":"x","completion_summary":"y"}' '{"completion_notes":"z","completion_summary":"w"}' > "$G34_OCF"
+    g34_api "$G34_BLK" >/dev/null
+    assert_eq "34k7: a file holding two JSON objects sends nothing" "absent" "$(g34_sent)"
+    cp "$G34_D/elsewhere.json" "$G34_OCF"
+    printf '%s\n' '["root.ex"]' > "$G34_D/.stride-changed-files.json"
+    mkdir -p "$G34_D/sub/deep/.stride"; printf '%s\n' '["deep.ex"]' > "$G34_D/sub/deep/.stride-changed-files.json"
+    G34_BODY=$(g34_api "$G34_BLK"$'\npwd > "$G34_D/PWD_AFTER"' "$G34_D/sub/deep" none)
+    assert_eq "34k8: run from a subdirectory with no root variable, the .stride.md walk-up finds the checked file" "present" "$(g34_sent)"
+    assert_eq "34k12: and it reads the root's changed-files snapshot, tees at the root and leaves the caller's directory alone" \
+      'true|present|absent|sub/deep' \
+      "$(printf '%s' "$G34_BODY" | jq -c '.changed_files == ["root.ex"]' 2>/dev/null)|$([ -s "$G34_D/.stride/.last-api-response.json" ] && echo present || echo absent)|$([ -e "$G34_D/sub/deep/.stride/.last-api-response.json" ] && echo present || echo absent)|$(sed "s|^$G34_D/||" "$G34_D/PWD_AFTER" 2>/dev/null)"
+    G34_PAT='( cd "$ROOT" && curl'; G34_NEW='( curl'
+    G34_NOCD=${G34_BLK/"$G34_PAT"/"$G34_NEW"}
+    G34_BODY=$(g34_api "$G34_NOCD" "$G34_D/sub/deep" none)
+    assert_eq "34n18: break-it -- without the cd a subdirectory run reads the wrong changed-files snapshot and tees there" \
+      'false|present' \
+      "$(printf '%s' "$G34_BODY" | jq -c '.changed_files == ["root.ex"]' 2>/dev/null)|$([ -e "$G34_D/sub/deep/.stride/.last-api-response.json" ] && echo present || echo absent)"
+    rm -rf "$G34_D/.stride-changed-files.json" "$G34_D/sub/deep/.stride" "$G34_D/sub/deep/.stride-changed-files.json" "$G34_D/PWD_AFTER"
+    g34_api "$G34_BLK" "$G34_D/sub" "$G34_D" >/dev/null
+    assert_eq "34k9: CODEX_PROJECT_DIR alone names the root, as in Step 8's block" "present" "$(g34_sent)"
+    mkdir -p "$G34_D/.stride/.outcomes-D9"; cp "$G34_D/elsewhere.json" "$G34_D/.stride/x.json"
+    G34_IDENT='D9/../x'; g34_api "$G34_BLK" >/dev/null; unset G34_IDENT
+    rmdir "$G34_D/.stride/.outcomes-D9"; rm -f "$G34_D/.stride/x.json"
+    assert_eq "34k10: a non-plain identifier falls back to the numeric-id stem, never a path built from it" "absent" "$(g34_sent)"
+
+    # 34l: the after_goal PATCH, both copies, on output with spaces, a glob and quotes
+    G34_OUT='2 tests, 0 failures * "quoted" it'"'"'s $(touch '"$G34_D"'/PWNED3)'
+    for l in "ct|$G34_CT|5. **POST**: Forward the captured result to flip the parent goal to Done:" \
+             "wf|$G34_WF|5. **POST**: Forward the captured result to the server:"; do
+      G34_F=${l#*|}; G34_LD=${G34_F#*|}; G34_F=${G34_F%%|*}
+      G34_AGB=$(g34_fence "$G34_F" "$G34_LD")
+      G34_AGBODY=$(cd "$G34_D" && env OUTPUT="$G34_OUT" EXIT_CODE=0 DURATION_MS=1234 GOAL_ID=9 \
+        STRIDE_API_URL='http://stub.invalid' STRIDE_API_TOKEN='stub' bash -c '
+        curl() { while [ $# -gt 0 ]; do [ "$1" = -d ] && printf "%s" "$2"; shift; done; }
+        '"$G34_AGB" 2>/dev/null)
+      assert_eq "34l (${l%%|*}): the after_goal PATCH sends the hook output byte for byte, with numeric exit_code and duration_ms" "true" \
+        "$(printf '%s' "$G34_AGBODY" | jq --arg o "$G34_OUT" '.output == $o and .exit_code == 0 and .duration_ms == 1234' 2>/dev/null)"
+    done
+    assert_eq "34l2: the after_goal output ran nothing" "absent" "$([ -e "$G34_D/PWNED3" ] && echo present || echo absent)"
+
+    # 34m: the old quoted --arg shape, rebuilt from the real block, does run a
+    # hostile note -- the hazard is real and 34j2 could have seen it
+    jq -n '{completion_notes: "x", completion_summary: "y"}' > "$G34_OCF"
+    G34_PAT='--slurpfile oc "$OC"'; G34_NEW="--arg notes '$G34_NOTES'"
+    G34_OLD=${G34_BLK/"$G34_PAT"/"$G34_NEW"}
+    G34_PAT="'\$oc[0] + {"; G34_NEW="'{ completion_notes: \$notes,"
+    G34_OLD=${G34_OLD/"$G34_PAT"/"$G34_NEW"}
+    rm -f "$G34_D/PWNED" "$G34_D/PWNED2"
+    g34_api "$G34_OLD" >/dev/null
+    assert_eq "34m: break-it -- the old quoted --arg notes shape runs the hostile note" "present" \
+      "$([ -e "$G34_D/PWNED" ] || [ -e "$G34_D/PWNED2" ] && echo present || echo absent)"
+    rm -f "$G34_D/PWNED" "$G34_D/PWNED2"
+  else
+    echo "  SKIP: 34j-34m (jq not installed)"
+  fi
+
+  # --- 34n: break-it on mutated COPIES ---
+  G34_TMP="$TMPDIR_TEST/g34m"; mkdir -p "$G34_TMP"
+  g34_neg() { # <label> <expected id> <ct|wf|rat> <old> <new>
+    local c="$G34_CT" w="$G34_WF" r="$G34_RAT" m=""
+    rm -f "$G34_TMP"/*.md
+    case "$3" in
+      ct) m=$(g27_mut "$G34_CT" "$G34_TMP/ct.md" "$4" "$5"); c="$G34_TMP/ct.md" ;;
+      wf) m=$(g27_mut "$G34_WF" "$G34_TMP/wf.md" "$4" "$5"); w="$G34_TMP/wf.md" ;;
+      rat) m=$(g27_mut "$G34_RAT" "$G34_TMP/rat.md" "$4" "$5"); r="$G34_TMP/rat.md" ;;
+    esac
+    if [ "$m" = "MISSING" ]; then
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+      return
+    fi
+    assert_contains "$1" "$2" " $(g34_check "$c" "$w" "$r" "$G34_RM" "$G34_AG") "
+  }
+  g34_neg "34n: break-it -- restoring a quoted --arg notes fails the group" " n_arg " ct \
+    '    --slurpfile oc "$OC" \' "    --arg notes 'All tests passing.' \\"
+  g34_neg "34n2: writing the summary into the jq filter fails the group" " n_field " ct \
+    '       time_spent_minutes: 45,' '       completion_summary: $summary,'
+  g34_neg "34n3: dropping the root, stem and .stride/ guard fails the group" " s_guard " ct \
+    "$G34_GUARD" 'if false \'
+  g34_neg "34n4: dropping the | tee capture fails the group" " k_tee " ct \
+    "  $G34_TEE" '  '
+  g34_neg "34n5: dropping the changed-files read from the example fails the group" " k_cf_api " ct \
+    "    $G34_CF \\" '    --argjson cf "[]" \'
+  g34_neg "34n5b: reading the fragment's notes from somewhere other than the file fails the group" " s_frag " ct \
+    '--slurpfile oc "${CLAUDE_PROJECT_DIR:-.}/.stride/.outcomes-<IDENTIFIER>.json" \' '--slurpfile oc notes.json \'
+  g34_neg "34n6: restoring the two-key-only Step 8 shape fails the group" " w_old " wf \
+    'a JSON object whose string keys `completion_notes` and `completion_summary` hold' 'a JSON object with exactly two string keys, `completion_notes` and `completion_summary`, hold'
+  g34_neg "34n7: restoring the word-splitting after_goal PATCH fails the group" " a_old " wf \
+    '--arg out "$OUTPUT" --argjson ec' '--arg out \"$OUTPUT\" --argjson ec'
+  g34_neg "34n8: restoring the swap-the-lines Step 6.5 paragraph fails the group" " r_old " ct \
+    'The file above is the same file `stride-workflow` Step 8 checks' 'Then replace `--arg notes …` and `--arg summary …` above with the file Step 8 checks'
+  g34_neg "34n9: finding the root another way than Step 8's block fails the group" " s_same " ct \
+    'ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"' 'ROOT="${CLAUDE_PROJECT_DIR:-.}"'
+  g34_neg "34n10: dropping the malformed-file check fails the group" " s_valid " ct \
+    "$G34_VALID" '   || false; then'
+  g34_neg "34n11: building the body without the file merge fails the group" " s_merge_api " ct \
+    "$G34_MERGE" "    '{"
+  g34_neg "34n12: writing a string literal into the jq filter fails the group" " n_literal " ct \
+    '       agent_name: $agent_name,' '       agent_name: "Codex CLI",'
+  g34_neg "34n13: dropping the stated rule fails the group" " p_rule " ct \
+    '**Write the free text to a file first — never into a shell literal (D406).**' '**Write the free text first.**'
+  g34_neg "34n14: dropping the keep-it-off-the-filter sentence fails the group" " p_keep " ct \
+    'never move a free-text field back onto one, or into the jq filter' 'keep them as they are'
+  g34_neg "34n15: dropping the why-one-file sentence from the rationale fails the group" " t_rat " rat \
+    'Since D406 it is the file every completion reads its free text from' 'Since D406 it is a file'
+  g34_neg "34n16: dropping the other free-text fields from Step 8's file shape fails the group" " w_shape " wf \
+    $'and the body\'s other free-text fields, as `stride-completing-tasks` § API Request Format lists them' 'and'
+  g34_neg "34n17: restoring the word-splitting after_goal PATCH in stride-completing-tasks fails the group" " a_ct " ct \
+    '--arg out "$OUTPUT" --argjson ec' '--arg out \"$OUTPUT\" --argjson ec'
+  g34_neg "34n20: a fragment fenced as bash again fails the group" " s_frag_text " ct \
+    '```text' '```bash'
+  g34_neg "34n21: a runnable completion curl with a literal body anywhere in the skill fails the sweep" " x_no_slurpfile " ct \
+    '   # with your file-editing tool and send the guarded block in § API Request Format' \
+    "   curl -X PATCH /api/tasks/W47/complete -d '{...both results...}'"
+  g34_neg "34n22: a quoted --arg name for the notes fails the sweep" ' x_arg_"notes" ' ct \
+    "    --arg complexity 'small' \\" "    --arg \"notes\" 'All tests passing.' \\"
+  g34_neg "34n23: a quoted free-text key in the jq filter fails the sweep" " x_free_text_key " ct \
+    '       time_spent_minutes: 45,' '       "completion_summary": $complexity,'
+  g34_neg "34n24: reading the notes with --rawfile fails the sweep" " x_forbidden_option " ct \
+    '    --slurpfile oc "$OC" \' '    --rawfile notes "$OC" \'
+  g34_neg "34n25: dropping Step 8's file-first pointer fails the group" " p_s8 " wf \
+    '**Every completion builds its body from the outcomes file, whether or not Step 6.5 fired**' '**Every completion**'
+  g34_neg "34n26: reading a free-text value from the environment fails the sweep" " x_env_read " ct \
+    '       time_spent_minutes: 45,' '       time_spent_minutes: $ENV.T,'
+  g34_neg "34n27: dropping the subshell's closing paren fails the group" " k_close " ct \
+    "  $G34_TEE )" "  $G34_TEE"
+  G34_CLM="$G34_TMP/cl.md"
+  if [ "$(g27_mut "$G34_CL" "$G34_CLM" ' never a shell literal (D406)' ' never a shell literal')" = "MISSING" ]; then
+    assert_eq "34c2 (mutation target present)" "present" "MISSING"
+  else
+    assert_eq "34c2: break-it -- a changelog copy without the D406 heading fails 34c's count" "0" \
+      "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G34_CLM" | grep -c '^### Fixed — .*(D406)$')"
+  fi
+  assert_eq "34z: the break-it cases left the real files untouched" "$G34_SUM_BEFORE" \
+    "$(cksum < "$G34_CT") $(cksum < "$G34_WF") $(cksum < "$G34_RAT") $(cksum < "$G34_RM") $(cksum < "$G34_AG") $(cksum < "$G34_CL")"
+else
+  echo "  SKIP: Test Group 34 (a skill, the rationale, README, AGENTS.md or the changelog is missing)"
+fi
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"

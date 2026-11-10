@@ -299,44 +299,53 @@ would read a stale snapshot from a prior task. See the "Why inline?"
 paragraph in the [Per-File Diff Capture (Manual)](#per-file-diff-capture-manual)
 section below.
 
+**Write the free text to a file first — never into a shell literal (D406).** Every field that carries text you did not choose yourself — `completion_notes`, `completion_summary`, `review_report`, the hook `output` inside `after_doing_result` and `before_review_result`, the `summary` inside `explorer_result` and `reviewer_result`, and each skip `reason` inside `workflow_steps` — restates task, reviewer, hook or application text, which the application can influence, so none of it travels through a shell `echo`, `printf`, heredoc, quoted `--arg` or the single-quoted jq filter: a single quote inside a quoted shell argument ends it, and the shell runs what follows. Before the curl, **write `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool** — the one file `stride-workflow` Step 8 checks, under the same stem: the identifier when it is a plain 1-64 character `[A-Za-z0-9_-]` token, else the numeric id. It is one JSON object holding those fields exactly as you will send them: `completion_notes` and `completion_summary` as strings; `review_report` when a reviewer ran (leave the key out when the review was skipped, and the body omits the field); and `after_doing_result`, `before_review_result`, `explorer_result`, `reviewer_result` and `workflow_steps` in their documented shapes. The curl merges it with `$oc[0] + { … }`, adding only the values you choose yourself — `agent_name`, `time_spent_minutes`, `actual_complexity`, `actual_files_changed` and `changed_files` — so nothing you wrote into the file is ever parsed by the shell. It is JSON, so a `\n` inside a string is a real newline — which is what a review report's line breaks need — and a literal backslash-n is written `\\n`. Write it only where nothing, or a regular file you wrote for this completion, sits at that path and `.stride/` is a real directory under the project root; a symlink at either means do not write and do not submit. **The block finds the file exactly as Step 8's block does** — the same two placeholder lines, the same stem allow-list and the same root — so the file sent is the file checked, whichever directory the block runs from; the guard refuses to send when the root or the stem is unresolved, when `.stride/` or the file is a symlink or the file is missing, or when the file is not one JSON object with string `completion_notes` and `completion_summary`. The `.stride/` directory is gitignored, and the redaction rules for these fields are unchanged: a secret must not reach the file, because the file's text is what is sent.
+
 ```bash
-curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
+OC_IDENT='<identifier>'
+OC_ID='<numeric id>'
+case "$OC_IDENT" in ''|*[!A-Za-z0-9_-]*) OC_IDENT='' ;; esac
+[ "${#OC_IDENT}" -le 64 ] || OC_IDENT=''
+case "$OC_ID" in ''|*[!0-9]*) OC_ID='' ;; esac
+[ "${#OC_ID}" -le 20 ] || OC_ID=''
+OC_STEM="${OC_IDENT:-$OC_ID}"
+ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
+if [ -z "$ROOT" ]; then
+  d=$PWD
+  while [ "$d" != "/" ]; do
+    [ -f "$d/.stride.md" ] && { ROOT=$d; break; }
+    d=$(dirname "$d")
+  done
+fi
+OC="$ROOT/.stride/.outcomes-$OC_STEM.json"
+if [ -z "$ROOT" ] || [ -z "$OC_STEM" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ] \
+   || [ ! -f "$OC" ] || [ -L "$OC" ] \
+   || ! jq -se 'length == 1 and (.[0] | type) == "object" and (.[0].completion_notes | type) == "string" and (.[0].completion_summary | type) == "string"' "$OC" >/dev/null 2>&1; then
+  echo 'completion text file missing, malformed or a symlink: not submitting' >&2; false
+else
+( cd "$ROOT" && curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
   -H "Authorization: Bearer $STRIDE_API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(jq -n \
     --argjson cf "$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
+    --slurpfile oc "$OC" \
     --arg agent_name 'Codex CLI' \
-    --arg notes 'All tests passing. PR #123 created.' \
-    --arg summary 'Brief one-line summary for tracking.' \
     --arg complexity 'small' \
     --arg files 'lib/foo.ex, test/foo_test.exs' \
-    --arg report '## Review Summary\n\nApproved — 0 issues found.' \
-    '{
+    '$oc[0] + {
        agent_name: $agent_name,
        time_spent_minutes: 45,
-       completion_notes: $notes,
-       completion_summary: $summary,
        actual_complexity: $complexity,
        actual_files_changed: $files,
-       changed_files: $cf,
-       review_report: $report,
-       after_doing_result: {exit_code: 0, output: "...", duration_ms: 45678},
-       before_review_result: {exit_code: 0, output: "...", duration_ms: 2340},
-       explorer_result: {dispatched: false, reason: "self_reported_exploration", summary: "..."},
-       reviewer_result: {dispatched: false, reason: "self_reported_review", summary: "..."},
-       workflow_steps: [
-         {name: "explorer", dispatched: true, duration_ms: 12450},
-         {name: "planner", dispatched: true, duration_ms: 8200},
-         {name: "implementation", dispatched: true, duration_ms: 1820000},
-         {name: "reviewer", dispatched: true, duration_ms: 15300},
-         {name: "after_doing", dispatched: true, duration_ms: 45678},
-         {name: "before_review", dispatched: true, duration_ms: 2340}
-       ]
+       changed_files: $cf
      }')" \
-  | tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"
+  | tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json" )
+fi
 ```
 
-**After Step 6.5, send the strings you checked.** When you wrote `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool at `stride-workflow` Step 8 and `exploratory_outcomes_ok` printed `true`, replace `--arg notes …` and `--arg summary …` above with `--slurpfile oc "<project root>/.stride/.outcomes-<IDENTIFIER>.json"` — the file Step 8 checked, named by the task file's stem: the identifier, or the numeric id when the identifier is not a plain 1-64 character `[A-Za-z0-9_-]` token — and set `completion_notes: $oc[0].completion_notes, completion_summary: $oc[0].completion_summary`, so the notes and summary sent are byte for byte the ones the check read. A missing file fails closed: `jq` errors, the body is empty and the server rejects it.
+Write this task's identifier and numeric id into the block's first two lines, inside the single quotes, only when each is already a plain token, exactly as in Step 8's block. The block changes into that root in a subshell before the curl, so the changed-files read and the `| tee` capture land there too when it runs from a subdirectory, and your shell's own directory is left as it was; a refusal prints one line and exits non-zero. `agent_name`, `complexity` and `files` stay on `--arg` because you choose them, not the application; never move a free-text field back onto one, or into the jq filter.
+
+**After Step 6.5, send the strings you checked.** The file above is the same file `stride-workflow` Step 8 checks — one file, one stem, one cleanup line — so there is nothing to reconcile and nothing to swap: write it once, with your file-editing tool, before Step 8's block runs, and make the call above only after `exploratory_outcomes_ok` printed `true`, so the notes and summary sent are byte for byte the ones the check read. The checker reads only `completion_notes` and `completion_summary`, so the other keys in the same file change no verdict. If you fix a line after a `false`, fix it in that file, never in a second copy. A missing or malformed file fails closed: the guard refuses to send.
 
 **Capture the response to the canonical file.** The `| tee` above writes the
 full, untruncated `/complete` response to
@@ -381,7 +390,7 @@ changed-files snapshot `.stride-changed-files.json` is a separate project-root
 dotfile — give it its own `.gitignore` entry too.)
 
 The resulting request body has this shape (illustrative — populated values
-match the `--arg` / `--argjson` substitutions above):
+match the `--arg` / `--argjson` / `--slurpfile` substitutions above):
 
 ```json
 {
@@ -531,21 +540,22 @@ JUST ran — reading it in an earlier shell turn (before you ran
 the absolute `$CLAUDE_PROJECT_DIR` path guards against the agent's CWD
 being something other than the project root.
 
-```bash
+A fragment, not a command — the `text` fence is deliberate:
+
+```text
 curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
   -H "Authorization: Bearer $STRIDE_API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(jq -n \
     --argjson cf "$(cat "${CLAUDE_PROJECT_DIR:-.}/.stride-changed-files.json" 2>/dev/null || echo '[]')" \
-    --arg summary 'completion summary text' \
-    --arg notes 'completion notes text' \
-    '{
-       completion_summary: $summary,
-       completion_notes: $notes,
+    --slurpfile oc "${CLAUDE_PROJECT_DIR:-.}/.stride/.outcomes-<IDENTIFIER>.json" \
+    '$oc[0] + {
        changed_files: $cf,
        actual_complexity: "small"
      }')"
 ```
+
+This fragment shows only where `changed_files` sits. Every free-text field comes from the file you wrote with your file-editing tool, exactly as in [API Request Format](#api-request-format) — send the full block from there, with its root and stem lines, its missing-file, malformed-file and symlink guard and its `| tee`, never this fragment.
 
 If `.stride-changed-files.json` is absent — capture script not vendored,
 non-git project, jq or git missing — the inlined `|| echo '[]'` fallback
@@ -990,7 +1000,8 @@ DURATION_MS=$((END_TIME - START_TIME))
 curl -X PATCH "$STRIDE_API_URL/api/tasks/$GOAL_ID/after_goal" \
   -H "Authorization: Bearer $STRIDE_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "$(jq -n --arg out \"$OUTPUT\" \"{exit_code: $EXIT_CODE, output: \\\$out, duration_ms: $DURATION_MS}\")"
+  -d "$(jq -n --arg out "$OUTPUT" --argjson ec "$EXIT_CODE" --argjson ms "$DURATION_MS" \
+    '{exit_code: $ec, output: $out, duration_ms: $ms}')"
 ```
 
 A `2xx` with `exit_code == 0` transitions the goal to Done. A `2xx` with `exit_code != 0` records the failure on the goal's `after_goal_attempts` audit log and leaves the goal In Progress for the user to investigate. Do NOT silently retry on non-zero exit — surface the failure and let the operator decide.
@@ -1037,8 +1048,8 @@ See `stride-workflow` SKILL.md Step 7 for the full hooks reference and Step 9 fo
    EXIT_CODE=$?
    # ...capture results
 
-   # Then call complete WITH both results
-   curl -X PATCH /api/tasks/W47/complete -d '{...both results...}'
+   # Then call complete WITH both results: write them into .stride/.outcomes-W47.json
+   # with your file-editing tool and send the guarded block in § API Request Format
 ```
 
 ### Mistake 2: Only including after_doing result
