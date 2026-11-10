@@ -8802,22 +8802,26 @@ echo ""
 echo "=== Test Group 35: the [1.43.1] entry accounts for every 1.43.0 Known issue (W2687) ==="
 
 G35_CL="$PORT_ROOT/CHANGELOG.md"
-# g35_counts <changelog>: "<bullets> <1.43.0 issues> <labelled> <fixed> <partly> <intro full> <intro total> <intro part>"
+# g35_counts <changelog> [<new> <old>]: "<bullets> <old issues> <labelled> <fixed> <partly> <intro full> <intro total> <intro part>"
+# for the [<new>] entry's status list of the [<old>] Known issues; the versions
+# default to 1.43.1 and 1.43.0 (Group 42 passes 1.43.2 and 1.43.1).
 g35_counts() {
-  awk '
+  awk -v nv="${2:-1.43.1}" -v ov="${3:-1.43.0}" '
     function num(w) { return (w in N) ? N[w] : -1 }
-    BEGIN { split("one two three four five six seven eight nine", W, " "); for (i in W) N[W[i]] = i }
-    /^## \[1\.43\.1\]/ { e = 1; next }
-    /^## \[1\.43\.0\]/ { e = 0; o = 1; next }
+    BEGIN { split("one two three four five six seven eight nine", W, " "); for (i in W) N[W[i]] = i
+            ore = ov; gsub(/\./, "\\.", ore)
+            ire = "fixes [a-z]+ of the [a-z]+ " ore " Known issues in full and [a-z]+ in part" }
+    index($0, "## [" nv "]") == 1 { e = 1; next }
+    index($0, "## [" ov "]") == 1 { e = 0; o = 1; next }
     /^## \[/ { e = 0; o = 0 }
     e && !intro && NF {
       intro = 1; f = -1; t = -1; q = -1
-      if (match($0, /fixes [a-z]+ of the [a-z]+ 1\.43\.0 Known issues in full and [a-z]+ in part/)) {
+      if (match($0, ire)) {
         split(substr($0, RSTART, RLENGTH), w, " "); f = num(w[2]); t = num(w[5]); q = num(w[12])
       }
       next
     }
-    e && $0 == "How each 1.43.0 Known issue stands:" { l = 1; next }
+    e && $0 == "How each " ov " Known issue stands:" { l = 1; next }
     e && l && /^- / {
       s++
       if ($0 ~ /^- \*\*[^*]+\*\* — partly fixed /) { p++; lab++ }
@@ -9384,7 +9388,7 @@ if [ -f "$G37_WF" ] && [ -f "$G37_CT" ] && [ -f "$G37_CL" ] && command -v jq >/d
     "[ \"\${#TF_ID}\" -le 20 ] || TF_ID=''" ':'
 
   # --- 37p: the prose and the changelog ---
-  assert_eq "37p: the exact-shape rule is stated once in Step 8 and once in the skill, and the changelog carries this entry once under [Unreleased]" "1 1 1" \
+  assert_eq "37p: the exact-shape rule is stated once in Step 8 and once in the skill, and the changelog carries this entry once between [Unreleased] and [1.43.1]" "1 1 1" \
     "$(g27_count "$G37_P_WF" "$G37_S8") $(g27_count "$G37_P_WF" "$(cat "$G37_WF")") $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G37_CL" | grep -c '^### Fixed — .*(D409)$')"
   assert_eq "37p2: no cleanup line keeps a trailing wildcard after a stem" "0" \
     "$(printf '%s\n' "$G37_CB" | grep -c -e '-r"\[0-9\]\*' -e '-"\*\.json')"
@@ -9612,7 +9616,7 @@ fi
     "absent W38" "$(g38_id "$G38_I" .claim-state.json) $(g38_id "$G38_O" .claim-state.json)"
 
   # 38p: the documented root and this changelog entry
-  assert_eq "38p: README states the root order and the no-.stride.md fallback once; the changelog carries this entry once under [Unreleased]" \
+  assert_eq "38p: README states the root order and the no-.stride.md fallback once; the changelog carries this entry once between [Unreleased] and [1.43.1]" \
     "1 1 1" \
     "$(grep -c '^#### Where the hooks look — the project root$' "$G38_README") $(grep -c 'With no `.stride.md` anywhere above, the root is the event' "$G38_README") $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G38_CL" | grep -c '^### Fixed — .*(D410)$')"
   rm -rf "$G38_X"
@@ -9841,7 +9845,7 @@ G39EOF
   assert_eq "39p: Group 39: both Detect blocks and both 1a blocks carry the completion block's root lines byte for byte, and no skill, README or AGENTS line reads .last-api-response.json from \${CLAUDE_PROJECT_DIR:-.}" \
     "yes yes yes yes yes 0" \
     "$([ "$(printf '%s\n' "$G39_RB" | wc -l | tr -d ' ')" = 10 ] && echo yes || echo no) $([ "$(g39_roots "$G39_DCT")" = "$G39_RB" ] && echo yes || echo no) $([ "$(g39_roots "$G39_DWF")" = "$G39_RB" ] && echo yes || echo no) $([ "$(g39_roots "$G39_ACT")" = "$G39_RB" ] && echo yes || echo no) $([ "$(g39_roots "$G39_AWF")" = "$G39_RB" ] && echo yes || echo no) $(cat "$PORT_ROOT"/skills/*/SKILL.md "$G39_RM" "$G39_AG" | grep -cF 'CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json')"
-  assert_eq "39p2: Group 39: the completion block states the snapshot refusal once, and the changelog carries this entry once under [Unreleased]" \
+  assert_eq "39p2: Group 39: the completion block states the snapshot refusal once, and the changelog carries this entry once between [Unreleased] and [1.43.1]" \
     "1 1" \
     "$(printf '%s\n' "$G39_BLK" | grep -cF "  echo '$G39_REFUSE' >&2; false") $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G39_CL" | grep -c '^### Fixed — .*(D411)$')"
 
@@ -10256,7 +10260,7 @@ EOF_G40R
   fi
 
   # --- 40p: the changelog ---
-  assert_eq "40p: the changelog carries this entry once under [Unreleased], above D411's" "1 yes" \
+  assert_eq "40p: the changelog carries this entry once between [Unreleased] and [1.43.1], above D411's" "1 yes" \
     "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G40_CL" | grep -c '^### Fixed — .*(W2688)$') $(awk '/^### .*\(W2688\)$/{a=NR} /^### .*\(D411\)$/{b=NR} END{print (a && b && a < b) ? "yes" : "no"}' "$G40_CL")"
 
   rm -rf "$G40_X"
@@ -10544,14 +10548,94 @@ G41CURL
   rm -f "$G41_S/.enrich-9.json" "$G41_S/.enrich-new.json"
 
   # --- 41p: the changelog ---
-  assert_eq "41p: the changelog carries this entry once, as the first entry under [Unreleased]" "1 D412" \
-    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G41_CL" | grep -c '^### Fixed — .*(D412)$') $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^### /{s=$0; sub(/.*\(/, "", s); sub(/\)$/, "", s); print s; exit}' "$G41_CL")"
+  assert_eq "41p: the changelog carries this entry once between [Unreleased] and [1.43.1], as the first entry under [1.43.2]" "1 D412" \
+    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G41_CL" | grep -c '^### Fixed — .*(D412)$') $(awk '/^## \[1\.43\.2\]/{f=1;next} f&&/^### /{s=$0; sub(/.*\(/, "", s); sub(/\)$/, "", s); print s; exit}' "$G41_CL")"
 
   rm -rf "$G41_X"
   assert_eq "41z: the break-it cases left the real files untouched" "$G41_SUM_BEFORE" \
     "$(cksum < "$G41_EN") $(cksum < "$G41_CL")"
 else
   echo "  SKIP: Test Group 41 (stride-enriching-tasks, the changelog or jq is missing)"
+fi
+
+# ============================================================================
+# Test Group 42: W2689 -- the [1.43.2] entry accounts for every 1.43.1 Known
+# issue
+# ============================================================================
+# The 1.43.2 release entry lists how each 1.43.1 Known issue stands, as the
+# 1.43.1 entry does for 1.43.0. 42a-42c run Group 35's counter with the
+# versions 1.43.2 and 1.43.1: one status bullet per 1.43.1 Known-issues
+# bullet, every bullet labelled "— fixed" or "— partly fixed", and the first
+# sentence's counts matching the bullets. They check labels and counts, never
+# whether a "fixed" is true. 42d checks the entry carries one heading per
+# task that shipped -- D407, D408, D409, D410, D411, W2688 and D412 -- so a
+# task whose commit changed no changelog (D408 changed only RELEASE.md) is
+# still named; 42e checks D408's heading and the line its runner proposed in
+# its completion notes appear once each in the entry. 42n1-42n6 mutate copies
+# of the changelog and show each check can fail; 42z checks the real file is
+# left untouched.
+# Reuses Group 27's g27_mut and Group 35's g35_counts, g35_a, g35_b and g35_c.
+echo ""
+echo "=== Test Group 42: the [1.43.2] entry accounts for every 1.43.1 Known issue (W2689) ==="
+
+G42_CL="$PORT_ROOT/CHANGELOG.md"
+G42_D408_LINE='- RELEASE.md step 2 now says the catalog secret scan stages the re-vendored tree and scans the index as well as history (D408).'
+# g42_slice <changelog>: the lines of the [1.43.2] entry
+g42_slice() { awk '/^## \[1\.43\.2\]/{f=1;next} f&&/^## \[/{exit} f' "$1"; }
+# g42_tasks <changelog>: "yes" when the entry has exactly one heading per shipped task
+g42_tasks() {
+  local id sl; sl=$(g42_slice "$1")
+  for id in D407 D408 D409 D410 D411 W2688 D412; do
+    [ "$(printf '%s\n' "$sl" | grep -c "^### .*($id)\$")" = "1" ] || { echo no; return; }
+  done
+  echo yes
+}
+# g42_d408 <changelog>: "<D408 headings> <D408 proposed lines>" in the entry
+g42_d408() {
+  local sl; sl=$(g42_slice "$1")
+  echo "$(printf '%s\n' "$sl" | grep -c '^### Changed — .*(D408)$') $(printf '%s\n' "$sl" | grep -cF -- "$G42_D408_LINE")"
+}
+if [ -f "$G42_CL" ]; then
+  G42_SUM_BEFORE=$(cksum < "$G42_CL")
+  G42_REAL=$(g35_counts "$G42_CL" 1.43.2 1.43.1)
+  assert_eq "42a: the [1.43.2] status list has one bullet per 1.43.1 Known issue" "yes" "$(printf '%s\n' "$G42_REAL" | g35_a)"
+  assert_eq "42b: every status bullet opens with fixed or partly fixed" "yes" "$(printf '%s\n' "$G42_REAL" | g35_b)"
+  assert_eq "42c: the entry's first sentence counts the fixed and partly fixed bullets" "yes" "$(printf '%s\n' "$G42_REAL" | g35_c)"
+  assert_eq "42d: the [1.43.2] entry has one heading for each of D407, D408, D409, D410, D411, W2688 and D412" "yes" "$(g42_tasks "$G42_CL")"
+  assert_eq "42e: the [1.43.2] entry carries D408's heading and its proposed RELEASE.md line once each" "1 1" "$(g42_d408 "$G42_CL")"
+  G42_TMP="$TMPDIR_TEST/g42"; mkdir -p "$G42_TMP"; G42_M="$G42_TMP/cl.md"
+  # g42_neg <label> <check fn> <old> <new>: the mutated copy must fail the check
+  g42_neg() {
+    if [ "$(g27_mut "$G42_CL" "$G42_M" "$3" "$4")" = "MISSING" ]; then
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+    else
+      assert_eq "$1" "no" "$(g35_counts "$G42_M" 1.43.2 1.43.1 | "$2")"
+    fi
+  }
+  g42_neg "42n1: break-it -- a status list missing one bullet fails 42a" g35_a \
+    '- **`exploratory_outcomes_ok` exempts a report that carries a root `verify` key** — fixed by D407.' \
+    '`exploratory_outcomes_ok` exempts a report that carries a root `verify` key — fixed by D407.'
+  G42_LAST="- **Group 34's runtime cases 34k5 to 34k10 have no break-it of their own** beyond the 34k4 control"
+  g42_neg "42n2: break-it -- an eighth 1.43.1 Known issue with no status bullet fails 42a" g35_a \
+    "$G42_LAST" "- **One more 1.43.1 issue.**
+$G42_LAST"
+  g42_neg "42n3: break-it -- a status bullet worded around the label fails 42b" g35_b \
+    '** — partly fixed by D412. ' '** — mostly addressed by D412. '
+  g42_neg "42n4: break-it -- a partial fix relabelled fixed fails 42c" g35_c \
+    '** — partly fixed by D412. ' '** — fixed by D412. '
+  if [ "$(g27_mut "$G42_CL" "$G42_M" 'secret scan as it now runs (D408)' 'secret scan as it now runs')" = "MISSING" ]; then
+    assert_eq "42n5: break-it (mutation target present)" "present" "MISSING"
+  else
+    assert_eq "42n5: break-it -- an entry whose D408 heading loses its id fails 42d and 42e" "no 0 1" "$(g42_tasks "$G42_M") $(g42_d408 "$G42_M")"
+  fi
+  if [ "$(g27_mut "$G42_CL" "$G42_M" "$G42_D408_LINE" '- RELEASE.md step 2 changed (D408).')" = "MISSING" ]; then
+    assert_eq "42n6: break-it (mutation target present)" "present" "MISSING"
+  else
+    assert_eq "42n6: break-it -- an entry without D408's proposed line fails 42e" "1 0" "$(g42_d408 "$G42_M")"
+  fi
+  assert_eq "42z: the break-it cases left the real changelog untouched" "$G42_SUM_BEFORE" "$(cksum < "$G42_CL")"
+else
+  echo "  SKIP: Test Group 42 (the changelog is missing)"
 fi
 
 echo ""
