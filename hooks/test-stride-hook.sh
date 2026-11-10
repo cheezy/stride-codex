@@ -4657,7 +4657,7 @@ assert_eq "23h: the twin still says to keep the two in sync" "1" \
   "$(g23_count 'keep the two in sync' "$G23_SWS")"
 assert_eq "23h: README describes the tag, the result path and the budget rule" "1 1 1" \
   "$(grep -c 'mode: considerations' "$G23_RM") $(grep -c 'SECURITY_RESULT_PATH' "$G23_RM") $(grep -c 'budget reached:' "$G23_RM")"
-assert_eq "23h: the changelog's first section is [Unreleased] and carries this entry" "## [Unreleased] 1" \
+assert_eq "23h: the changelog's first section is [Unreleased], and the changelog carries this entry" "## [Unreleased] 1" \
   "$(grep -m1 '^## \[' "$G23_CL") $(grep -c '^### Changed — .*(W2673)$' "$G23_CL")"
 
 # 23i: a None placeholder still skips the deep review in both twins
@@ -4904,9 +4904,9 @@ fi
 # 24j: README and CHANGELOG
 assert_eq "24j: README describes the two safety lines, the report path, the ending and the framework" "1 1 1 1 1" \
   "$(grep -c 'AUTHORIZED_NON_PRODUCTION: yes' "$G24_RM") $(grep -c 'ALLOWED_HOSTS: <host' "$G24_RM") $(grep -c 'EXPLORATORY_REPORT_PATH' "$G24_RM") $(grep -c 'no_observation_surface' "$G24_RM") $(grep -c 'explicit `--framework`' "$G24_RM")"
-assert_eq "24j: the changelog's first section is [Unreleased] and carries this entry once" "## [Unreleased] 1" \
+assert_eq "24j: the changelog's first section is [Unreleased], and the changelog carries this entry once" "## [Unreleased] 1" \
   "$(grep -m1 '^## \[' "$G24_CL") $(grep -c '^### Changed — .*(W2674)$' "$G24_CL")"
-assert_eq "24j: this entry follows W2673's, inside [Unreleased]" "yes" \
+assert_eq "24j: this entry follows W2673's, above [1.40.0]" "yes" \
   "$(awk '/^### Changed — .*\(W2673\)$/{a=NR} /^### Changed — .*\(W2674\)$/{b=NR} /^## \[1\.40\.0\]/{c=NR} END{print (a && b && c && a < b && b < c) ? "yes" : "no"}' "$G24_CL")"
 
 # 24k: what must not change
@@ -7756,8 +7756,8 @@ if [ -f "$G32_WF" ] && [ -f "$G32_SW" ] && [ -f "$G32_CL" ]; then
   g32_ok "Group 32: Step 8 cleanup names the .goal-scope-<STEM> files" c_
   g32_ok "Group 32: Phase 3.5 states the walk-up and fallback rules" p_
   assert_eq "32c: every D404 rule found exactly once in its section" "OK" "$G32_REAL"
-  assert_eq "32c2: the CHANGELOG's [Unreleased] carries one (D404) entry" "1" \
-    "$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$G32_CL" | grep -c '^### Fixed — .*(D404)$' | tr -d ' ')"
+  assert_eq "32c2: the CHANGELOG between [Unreleased] and [1.43.0] carries one (D404) entry" "1" \
+    "$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[1\.43\.0\]/{exit} f' "$G32_CL" | grep -c '^### Fixed — .*(D404)$' | tr -d ' ')"
 
   if command -v jq >/dev/null 2>&1; then
     G32_X="$TMPDIR_TEST/g32"; mkdir -p "$G32_X"
@@ -8165,8 +8165,8 @@ if [ -f "$G33_WF" ] && [ -f "$G33_SW" ] && [ -f "$G33_CT" ] && [ -f "$G33_RAT" ]
   g33_ok "33e: the goal-scope not-run line needs the step to have fired, in both twins and the rationale" t_
   g33_ok "33f: Group 28: AGENTS.md says only the probe harness, services and dir become PROBE_ lines" a_
   assert_eq "33t: every rule found exactly once in its section" "OK" "$G33_REAL"
-  assert_eq "33c: the changelog carries one D405 entry under [Unreleased]" "1" \
-    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G33_CL" | grep -c '^### Fixed — .*(D405)$')"
+  assert_eq "33c: the changelog carries one D405 entry between [Unreleased] and [1.43.0]" "1" \
+    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.0\]/{exit} f' "$G33_CL" | grep -c '^### Fixed — .*(D405)$')"
 
   # --- 33j-33k7: the checker, extracted from the skill and run ---
   if command -v jq >/dev/null 2>&1; then
@@ -8524,8 +8524,8 @@ if [ -f "$G34_CT" ] && [ -f "$G34_WF" ] && [ -f "$G34_RAT" ] && [ -f "$G34_CL" ]
   g34_ok "34g: the after_goal PATCH quotes the hook output and passes the numbers with --argjson" a_
   g34_ok "34i: every shell fence in the plugin's markdown that calls /complete or /mark_reviewed reads the file and passes only agent_name, complexity, files, cf and oc" x_ scope_sweep
   assert_eq "34h: every rule found exactly once in its section" "OK" "$G34_REAL"
-  assert_eq "34c: the changelog carries one D406 entry under [Unreleased]" "1" \
-    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G34_CL" | grep -c '^### Fixed — .*(D406)$')"
+  assert_eq "34c: the changelog carries one D406 entry between [Unreleased] and [1.43.0]" "1" \
+    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.0\]/{exit} f' "$G34_CL" | grep -c '^### Fixed — .*(D406)$')"
 
   if command -v jq >/dev/null 2>&1; then
     G34_D="$TMPDIR_TEST/g34"; rm -rf "$G34_D"; mkdir -p "$G34_D/.stride" "$G34_D/sub/deep"
@@ -8731,13 +8731,91 @@ Approved \n stays two characters.'
   if [ "$(g27_mut "$G34_CL" "$G34_CLM" ' never a shell literal (D406)' ' never a shell literal')" = "MISSING" ]; then
     assert_eq "34c2 (mutation target present)" "present" "MISSING"
   else
-    assert_eq "34c2: break-it -- a changelog copy without the D406 heading fails 34c's count" "0" \
-      "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G34_CLM" | grep -c '^### Fixed — .*(D406)$')"
+    assert_eq "34c2: break-it -- a changelog copy without the D406 heading fails 34c's count between [Unreleased] and [1.43.0]" "0" \
+      "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.0\]/{exit} f' "$G34_CLM" | grep -c '^### Fixed — .*(D406)$')"
   fi
   assert_eq "34z: the break-it cases left the real files untouched" "$G34_SUM_BEFORE" \
     "$(cksum < "$G34_CT") $(cksum < "$G34_WF") $(cksum < "$G34_RAT") $(cksum < "$G34_RM") $(cksum < "$G34_AG") $(cksum < "$G34_CL")"
 else
   echo "  SKIP: Test Group 34 (a skill, the rationale, README, AGENTS.md or the changelog is missing)"
+fi
+
+# ============================================================================
+# Test Group 35: W2687 -- the [1.43.1] entry accounts for every 1.43.0 Known
+# issue
+# ============================================================================
+# The 1.43.1 release entry lists how each 1.43.0 Known issue stands. 35a pins
+# one status bullet per 1.43.0 Known-issues bullet, so a list that drops or
+# adds one fails; 35b pins that every status bullet opens, after its bold
+# lead, with "— fixed" or "— partly fixed", so a partial fix cannot be worded
+# around the label; 35c pins that the entry's first sentence ("fixes <full>
+# of the <total> 1.43.0 Known issues in full and <part> in part") matches the
+# bullets. They check labels and counts, never whether a "fixed" is true.
+# 35n1-35n4 mutate copies of the changelog and show each check can fail; 35z
+# checks the real file is left untouched.
+echo ""
+echo "=== Test Group 35: the [1.43.1] entry accounts for every 1.43.0 Known issue (W2687) ==="
+
+G35_CL="$PORT_ROOT/CHANGELOG.md"
+# g35_counts <changelog>: "<bullets> <1.43.0 issues> <labelled> <fixed> <partly> <intro full> <intro total> <intro part>"
+g35_counts() {
+  awk '
+    function num(w) { return (w in N) ? N[w] : -1 }
+    BEGIN { split("one two three four five six seven eight nine", W, " "); for (i in W) N[W[i]] = i }
+    /^## \[1\.43\.1\]/ { e = 1; next }
+    /^## \[1\.43\.0\]/ { e = 0; o = 1; next }
+    /^## \[/ { e = 0; o = 0 }
+    e && !intro && NF {
+      intro = 1; f = -1; t = -1; q = -1
+      if (match($0, /fixes [a-z]+ of the [a-z]+ 1\.43\.0 Known issues in full and [a-z]+ in part/)) {
+        split(substr($0, RSTART, RLENGTH), w, " "); f = num(w[2]); t = num(w[5]); q = num(w[12])
+      }
+      next
+    }
+    e && $0 == "How each 1.43.0 Known issue stands:" { l = 1; next }
+    e && l && /^- / {
+      s++
+      if ($0 ~ /^- \*\*[^*]+\*\* — partly fixed /) { p++; lab++ }
+      else if ($0 ~ /^- \*\*[^*]+\*\* — fixed /) { x++; lab++ }
+      next
+    }
+    e && l && NF { l = 0 }
+    o && /^### / { k = ($0 == "### Known issues"); next }
+    o && k && /^- / { n++ }
+    END { printf "%d %d %d %d %d %d %d %d\n", s, n, lab, x, p, f, t, q }' "$1"
+}
+g35_a() { awk '{ print ($1 > 0 && $1 == $2) ? "yes" : "no" }'; }
+g35_b() { awk '{ print ($1 > 0 && $3 == $1) ? "yes" : "no" }'; }
+g35_c() { awk '{ print ($6 == $4 && $7 == $2 && $8 == $5) ? "yes" : "no" }'; }
+if [ -f "$G35_CL" ]; then
+  G35_SUM_BEFORE=$(cksum < "$G35_CL")
+  G35_REAL=$(g35_counts "$G35_CL")
+  assert_eq "35a: the [1.43.1] status list has one bullet per 1.43.0 Known issue" "yes" "$(printf '%s\n' "$G35_REAL" | g35_a)"
+  assert_eq "35b: every status bullet opens with fixed or partly fixed" "yes" "$(printf '%s\n' "$G35_REAL" | g35_b)"
+  assert_eq "35c: the entry's first sentence counts the fixed and partly fixed bullets" "yes" "$(printf '%s\n' "$G35_REAL" | g35_c)"
+  G35_TMP="$TMPDIR_TEST/g35"; mkdir -p "$G35_TMP"; G35_M="$G35_TMP/cl.md"
+  # g35_neg <label> <check fn> <old> <new>: the mutated copy must fail the check
+  g35_neg() {
+    if [ "$(g27_mut "$G35_CL" "$G35_M" "$3" "$4")" = "MISSING" ]; then
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+    else
+      assert_eq "$1" "no" "$(g35_counts "$G35_M" | "$2")"
+    fi
+  }
+  g35_neg "35n1: break-it -- a status list missing one bullet fails 35a" g35_a \
+    '- **The goal-scope trigger and the Step 8 outcomes block resolve paths differently**' \
+    'The goal-scope trigger and the Step 8 outcomes block resolve paths differently'
+  G35_SIB="- **The sibling plugin's text predates this release.**"
+  g35_neg "35n2: break-it -- a sixth 1.43.0 Known issue with no status bullet fails 35a" g35_a \
+    "$G35_SIB" "- **One more 1.43.0 issue.**
+$G35_SIB"
+  g35_neg "35n3: break-it -- a status bullet worded around the label fails 35b" g35_b \
+    '** — partly fixed by D406. ' '** — mostly addressed by D406. '
+  g35_neg "35n4: break-it -- a partial fix relabelled fixed fails 35c" g35_c \
+    '** — partly fixed by D406. ' '** — fixed by D406. '
+  assert_eq "35z: the break-it cases left the real changelog untouched" "$G35_SUM_BEFORE" "$(cksum < "$G35_CL")"
+else
+  echo "  SKIP: Test Group 35 (the changelog is missing)"
 fi
 
 echo ""
