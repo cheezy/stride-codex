@@ -336,7 +336,7 @@ curl -X PATCH "$STRIDE_API_URL/api/tasks/$TASK_ID/complete" \
   | tee "${CLAUDE_PROJECT_DIR:-.}/.stride/.last-api-response.json"
 ```
 
-**After Step 6.5, send the strings you checked.** When you wrote `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool at `stride-workflow` Step 8 and `exploratory_outcomes_ok` printed `true`, replace `--arg notes …` and `--arg summary …` above with `--slurpfile oc "<project root>/.stride/.outcomes-<IDENTIFIER>.json"` and set `completion_notes: $oc[0].completion_notes, completion_summary: $oc[0].completion_summary`, so the notes and summary sent are byte for byte the ones the check read. A missing file fails closed: `jq` errors, the body is empty and the server rejects it.
+**After Step 6.5, send the strings you checked.** When you wrote `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool at `stride-workflow` Step 8 and `exploratory_outcomes_ok` printed `true`, replace `--arg notes …` and `--arg summary …` above with `--slurpfile oc "<project root>/.stride/.outcomes-<IDENTIFIER>.json"` — the file Step 8 checked, named by the task file's stem: the identifier, or the numeric id when the identifier is not a plain 1-64 character `[A-Za-z0-9_-]` token — and set `completion_notes: $oc[0].completion_notes, completion_summary: $oc[0].completion_summary`, so the notes and summary sent are byte for byte the ones the check read. A missing file fails closed: `jq` errors, the body is empty and the server rejects it.
 
 **Capture the response to the canonical file.** The `| tee` above writes the
 full, untruncated `/complete` response to

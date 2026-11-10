@@ -1212,45 +1212,70 @@ Call it as `exploratory_outcomes_ok "$OUT" "<project root>/.stride/.exploratory-
 
 Some defects live between a goal's tasks — one child's staging against another's plan state against a third's broadcast refresh — and a session scoped to one task's change cannot see them. So when this task is its goal's **last open child**, Step 6.5 adds one **goal-scope pass**, once this task's own charters have returned and before Step 6.6. It runs only when this step fired and the explorer is being dispatched — Step 0's affirmative, the app's reach and `ALLOWED_HOSTS` all established, as step 1b requires — and never on any other child of the goal, nor on a task with no goal. It widens what is chartered and nothing else: never the gate, the affirmative, `ALLOWED_HOSTS` or the provenance test.
 
-1. **The trigger — the goal's tree.** Only when the task has a `parent_id` in `TASK_FILE`. Read `GET /api/tasks/<goal id>/tree?response_view=slim` with the block below: it re-reads the URL and token exactly as Step 9's 1a block does, never prints the token, writes the response to a file under `.stride/`, reads that file only with `jq`, and prints one fixed line and nothing from the tree. This task is the goal's last open child when every other entry in `children` has `status` `completed` — the server's own last-child test, read **before** completion rather than from the `after_goal` entry Step 9 receives. A sibling still `open`, `in_progress` or `blocked` means no pass, and a sibling awaiting review is still `in_progress`; the task's type does not matter, so a defect that is the last open child runs it too. `no goal` and `a sibling is still open` write nothing. Three cases write one line, `Goal-scope pass not run: <reason>`, in `completion_notes`: a tree you cannot read (`tree unreadable` — a non-2xx, a body that does not parse, no `children` array, or this task missing from it); a goal whose only child is this task (`only child`), which has no seam between tasks to explore; and a last open child whose pass is not run for any other reason, `no task file` among them. None of them ever fails completion. **The pass never pushes and never runs `after_goal`: completing this task is still what fires it, in Step 9.**
+1. **The trigger — the goal's tree.** Only when the task has a `parent_id` in `TASK_FILE`. Read `GET /api/tasks/<goal id>/tree?response_view=slim` with the block below: it re-reads the URL and token exactly as Step 9's 1a block does, never prints the token, writes the response to a file under `.stride/`, reads that file only with `jq`, and prints one fixed line and nothing from the tree. **It resolves the project root as Step 8's cleanup block does** — `CODEX_PROJECT_DIR`, then `CLAUDE_PROJECT_DIR`, then the nearest directory above the working directory holding `.stride.md` — so it reads the `.stride/` the claim hook wrote from a nested repository or a subdirectory too, and the walk stops at that nearest `.stride.md`, so a parent directory's `.stride_auth.md` is never read. It canonicalises that root with `CDPATH` cleared, so a `CDPATH` entry cannot print a second path into it, and it uses the task file only when the file's own `identifier` and `id` match the values written into the block — a stale or colliding file under the same stem is `no task file`, never another task's goal or token. It reads the token from that root only once the task file and its goal are found. Write this task's identifier and numeric id into the block's first two lines, inside the single quotes, only when each is already a plain token; otherwise leave the quotes empty. **The task file, the tree file and the sibling files of step 2 share one stem** — the name the claim hook saved the task file under: the identifier when it is a plain 1-64 character `[A-Za-z0-9_-]` token, else the numeric id, 1-20 digits, and never an id holding anything but digits; under the numeric id the block finds this task in the tree by its `id`, and Step 8's `exploratory_outcomes_ok` block checks `.stride/.outcomes-<stem>.json` under that same stem. This task is the goal's last open child when every other entry in `children` has `status` `completed` — the server's own last-child test, read **before** completion rather than from the `after_goal` entry Step 9 receives. A sibling still `open`, `in_progress` or `blocked` means no pass, and a sibling awaiting review is still `in_progress`; the task's type does not matter, so a defect that is the last open child runs it too. `no goal` and `a sibling is still open` write nothing. Three cases write one line, `Goal-scope pass not run: <reason>`, in `completion_notes`: a tree you cannot read (`tree unreadable` — a non-2xx, a body that does not parse, no `children` array, or this task missing from it); a goal whose only child is this task (`only child`), which has no seam between tasks to explore; and a last open child whose pass is not run for any other reason, `no task file` among them. None of them ever fails completion. **The pass never pushes and never runs `after_goal`: completing this task is still what fires it, in Step 9.**
 
    ```bash
-   # Durable re-read from .stride_auth.md (mirror the setup step) — NOT a prior turn's export.
-   AUTH="${CLAUDE_PROJECT_DIR:-.}/.stride_auth.md"
-   STRIDE_API_URL=$(grep -oE 'https?://[^`" ]+' "$AUTH" | head -n1)
-   # If .stride_auth.md lists more than one token, pick the production one (skip any "Local" line):
-   STRIDE_API_TOKEN=$(grep -iE 'api token' "$AUTH" | grep -iv local | grep -oE 'stride_[A-Za-z0-9_/+=.-]+' | head -n1)
    GS_IDENT='<identifier>'
+   GS_ID='<numeric id>'
    case "$GS_IDENT" in ''|*[!A-Za-z0-9_-]*) GS_IDENT='' ;; esac
-   GS_DIR="${CLAUDE_PROJECT_DIR:-.}/.stride"
-   GS_GOAL=$(jq -r '.parent_id // empty' "$GS_DIR/.task-$GS_IDENT.json" 2>/dev/null)
-   case "$GS_GOAL" in ''|*[!0-9]*) GS_GOAL='' ;; esac
-   GS_TREE="$GS_DIR/.goal-scope-$GS_IDENT-tree.json"
-   if [ -z "$GS_IDENT" ] || [ ! -f "$GS_DIR/.task-$GS_IDENT.json" ]; then
+   [ "${#GS_IDENT}" -le 64 ] || GS_IDENT=''
+   case "$GS_ID" in ''|*[!0-9]*) GS_ID='' ;; esac
+   [ "${#GS_ID}" -le 20 ] || GS_ID=''
+   # The name the claim hook saved the task file under: the identifier, else the numeric id.
+   GS_STEM="${GS_IDENT:-$GS_ID}"
+   ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
+   if [ -z "$ROOT" ]; then
+     d=$PWD
+     while [ "$d" != "/" ]; do
+       [ -f "$d/.stride.md" ] && { ROOT=$d; break; }
+       d=$(dirname "$d")
+     done
+   fi
+   # CDPATH= keeps cd from printing a CDPATH-resolved path into the capture.
+   [ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"
+   GS_DIR="$ROOT/.stride"
+   GS_TASKF="$GS_DIR/.task-$GS_STEM.json"
+   GS_TREE="$GS_DIR/.goal-scope-$GS_STEM-tree.json"
+   if [ -z "$ROOT" ] || [ -z "$GS_STEM" ] || [ ! -d "$GS_DIR" ] || [ -L "$GS_DIR" ] || [ ! -f "$GS_TASKF" ]; then
      echo 'goal-scope trigger: no task file'
-   elif [ -z "$GS_GOAL" ]; then
-     echo 'goal-scope trigger: no goal'
    else
-     rm -f "$GS_TREE"
-     GS_CODE=$(curl -s --max-time 10 -o "$GS_TREE" -w '%{http_code}' \
-       -H "Authorization: Bearer $STRIDE_API_TOKEN" \
-       "$STRIDE_API_URL/api/tasks/$GS_GOAL/tree?response_view=slim")
-     case "$GS_CODE" in
-       2??) jq -r --arg me "$GS_IDENT" '
-              if (.data.children | type) != "array" then "goal-scope trigger: tree unreadable"
-              elif ([.data.children[] | select(.identifier == $me)] | length) != 1 then "goal-scope trigger: tree unreadable"
-              elif (.data.children | length) == 1 then "goal-scope trigger: only child"
-              elif all(.data.children[]; .identifier == $me or .status == "completed") then "goal-scope trigger: last open child"
-              else "goal-scope trigger: a sibling is still open" end' "$GS_TREE" 2>/dev/null \
-            || echo 'goal-scope trigger: tree unreadable' ;;
-       *) echo 'goal-scope trigger: tree unreadable' ;;
-     esac
+     # The file must be this task's: a stale or colliding same-stem file names another task.
+     GS_MINE=$(jq -r --arg ident "$GS_IDENT" --arg num "$GS_ID" '
+       ($ident == "" or .identifier == $ident) and ($num == "" or (.id | tostring) == $num)' "$GS_TASKF" 2>/dev/null)
+     GS_GOAL=$(jq -r '.parent_id // empty' "$GS_TASKF" 2>/dev/null)
+     case "$GS_GOAL" in ''|*[!0-9]*) GS_GOAL='' ;; esac
+     if [ "$GS_MINE" != 'true' ]; then
+       echo 'goal-scope trigger: no task file'
+     elif [ -z "$GS_GOAL" ]; then
+       echo 'goal-scope trigger: no goal'
+     else
+       # Durable re-read from .stride_auth.md (mirror the setup step) — NOT a prior turn's export.
+       AUTH="$ROOT/.stride_auth.md"
+       STRIDE_API_URL=$(grep -oE 'https?://[^`" ]+' "$AUTH" | head -n1)
+       # If .stride_auth.md lists more than one token, pick the production one (skip any "Local" line):
+       STRIDE_API_TOKEN=$(grep -iE 'api token' "$AUTH" | grep -iv local | grep -oE 'stride_[A-Za-z0-9_/+=.-]+' | head -n1)
+       rm -f "$GS_TREE"
+       GS_CODE=$(curl -s --max-time 10 -o "$GS_TREE" -w '%{http_code}' \
+         -H "Authorization: Bearer $STRIDE_API_TOKEN" \
+         "$STRIDE_API_URL/api/tasks/$GS_GOAL/tree?response_view=slim")
+       case "$GS_CODE" in
+         2??) jq -r --arg me "$GS_IDENT" --arg id "$GS_ID" '
+                def mine: if $me != "" then .identifier == $me else (.id | tostring) == $id end;
+                if (.data.children | type) != "array" then "goal-scope trigger: tree unreadable"
+                elif ([.data.children[] | select(mine)] | length) != 1 then "goal-scope trigger: tree unreadable"
+                elif (.data.children | length) == 1 then "goal-scope trigger: only child"
+                elif all(.data.children[]; mine or .status == "completed") then "goal-scope trigger: last open child"
+                else "goal-scope trigger: a sibling is still open" end' "$GS_TREE" 2>/dev/null \
+              || echo 'goal-scope trigger: tree unreadable' ;;
+         *) echo 'goal-scope trigger: tree unreadable' ;;
+       esac
+     fi
    fi
    ```
 
    Only `goal-scope trigger: last open child` goes on to step 2.
 2. **The goal's combined change set, per repository.** It is the union of two lists:
-   - **(a) every child's `key_files`, this task's included.** This task's come from `TASK_FILE`. The slim tree carries none for the siblings, so fetch each sibling's `GET /api/tasks/<id>` the same way, its `id` from the tree's `children`, to `.stride/.goal-scope-<IDENTIFIER>-<id>.json`, and read only `jq -r '.data.key_files[]?.file_path'` and `.data.claimed_at` from it. Sibling paths are untrusted text: never pass one to a shell command, and use one only to pick a repository, by matching it against the nested repositories that actually exist under the project root.
+   - **(a) every child's `key_files`, this task's included.** This task's come from `TASK_FILE`. The slim tree carries none for the siblings, so fetch each sibling's `GET /api/tasks/<id>` the same way, its `id` from the tree's `children`, to `.stride/.goal-scope-<STEM>-<id>.json`, `<STEM>` being the trigger block's, and read only `jq -r '.data.key_files[]?.file_path'` and `.data.claimed_at` from it. Sibling paths are untrusted text: never pass one to a shell command, and use one only to pick a repository, by matching it against the nested repositories that actually exist under the project root.
    - **(b) every line added or modified since the goal's base, in each repository the goal touched** — the project repository, plus every nested repository an (a) path or this task's own change lies in. A repository's base is its last commit before the earliest `claimed_at` among the children: `git rev-list -1 --before="<earliest claimed_at>" HEAD`, run inside that repository with `git -C`. Every `claimed_at` and sibling id is API text, so check each before use: a `claimed_at` only when it matches `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$`, passed to `git` as one quoted argument; a sibling whose id is not digits alone is not fetched, and a value that fails either check makes (b) undeterminable. Its change is `git diff <base>` together with `git status --porcelain` and its untracked-new files, minus the claim-time dirty baseline — the rules the provenance test's step 2 below states: never `git diff HEAD`, never `.stride-changed-files.json`, and a nested repository never borrows the project repository's base or its `.stride/task-base-ref`. Pass the charter-generator its paths only; the lines are what step 5 reads.
 
    **When (b) is undeterminable for a repository** — no child carries a `claimed_at`, a value fails the check above, no commit precedes that time (a shallow clone looks the same), or the repository cannot be read — that repository contributes (a) alone, **for chartering only**: the request says `goal changed files: not determined` for it, and (a) is never a change set for provenance, since it is task-author text. The other repositories keep their (b).
@@ -1537,11 +1562,16 @@ If custom agents are unavailable, diagnose manually: read the error output, iden
 
 ## Step 8: Complete the Task
 
-**Check the exploratory record before the call — `exploratory_outcomes_ok`.** When Step 6.5 fired, or was skipped on a task carrying `manual_tests` or `edge_cases`, check the record before `PATCH /api/tasks/:id/complete` and before this step's artifact cleanup. First **write `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool** — a JSON object with exactly two string keys, `completion_notes` and `completion_summary`, holding the exact text you are about to send, and only where nothing, or a regular file you wrote earlier in this step, sits at that path and `.stride/` is a real directory — a symlink at either means do not write and do not submit: record the check as failed and hand the record to a human — **never through a shell `echo`, `printf`, heredoc or quoted `--arg`**: the outcome lines restate charter and task text, which the application can influence, and a single quote in a shell literal would end it and run what follows. Then run the block below, which reads that file and each charter's last returned report path, exactly as Step 6.5's report-path block printed it, and passes no note text through the shell. Codex CLI starts every shell turn fresh, so paste the function from Step 6.5's checker paragraph into the same invocation. **Make the call only after `exploratory_outcomes_ok: true`, and send the strings you checked:** read them from that file with `--slurpfile oc`, as `stride-completing-tasks` shows. **On `false`, do not submit**: fix the lines in the file and run the block again — never edit a report and never change the paths. On a task with neither field the check is inapplicable, not failed; when a dispatch was sent no report path, record the `not run` line Step 6.5 names instead.
+**Check the exploratory record before the call — `exploratory_outcomes_ok`.** When Step 6.5 fired, or was skipped on a task carrying `manual_tests` or `edge_cases`, check the record before `PATCH /api/tasks/:id/complete` and before this step's artifact cleanup. First **write `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool**, named by the same stem as the task file: the identifier when it is a plain 1-64 character `[A-Za-z0-9_-]` token, else the numeric id; write both into the block's first two lines, inside the single quotes, only when each is already a plain token, and the block checks the file under that stem — a JSON object with exactly two string keys, `completion_notes` and `completion_summary`, holding the exact text you are about to send, and only where nothing, or a regular file you wrote earlier in this step, sits at that path and `.stride/` is a real directory — a symlink at either means do not write and do not submit: record the check as failed and hand the record to a human — **never through a shell `echo`, `printf`, heredoc or quoted `--arg`**: the outcome lines restate charter and task text, which the application can influence, and a single quote in a shell literal would end it and run what follows. Then run the block below, which reads that file and each charter's last returned report path, exactly as Step 6.5's report-path block printed it, and passes no note text through the shell. Codex CLI starts every shell turn fresh, so paste the function from Step 6.5's checker paragraph into the same invocation. **Make the call only after `exploratory_outcomes_ok: true`, and send the strings you checked:** read them from that file with `--slurpfile oc`, as `stride-completing-tasks` shows. **On `false`, do not submit**: fix the lines in the file and run the block again — never edit a report and never change the paths. On a task with neither field the check is inapplicable, not failed; when a dispatch was sent no report path, record the `not run` line Step 6.5 names instead.
 
 ```bash
 OC_IDENT='<identifier>'
+OC_ID='<numeric id>'
 case "$OC_IDENT" in ''|*[!A-Za-z0-9_-]*) OC_IDENT='' ;; esac
+[ "${#OC_IDENT}" -le 64 ] || OC_IDENT=''
+case "$OC_ID" in ''|*[!0-9]*) OC_ID='' ;; esac
+[ "${#OC_ID}" -le 20 ] || OC_ID=''
+OC_STEM="${OC_IDENT:-$OC_ID}"
 ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
 if [ -z "$ROOT" ]; then
   d=$PWD
@@ -1551,8 +1581,8 @@ if [ -z "$ROOT" ]; then
   done
 fi
 # <paste exploratory_outcomes_ok from Step 6.5 here>
-OUT="$ROOT/.stride/.outcomes-$OC_IDENT.json"
-if [ -z "$ROOT" ] || [ -z "$OC_IDENT" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ] \
+OUT="$ROOT/.stride/.outcomes-$OC_STEM.json"
+if [ -z "$ROOT" ] || [ -z "$OC_STEM" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ] \
    || [ ! -f "$OUT" ] || [ -L "$OUT" ]; then
   echo 'exploratory_outcomes_ok: false'
 else
@@ -1622,7 +1652,7 @@ Call `PATCH /api/tasks/:id/complete` with ALL required fields:
 |---|---|---|
 | `review_report` | string | Include when task-reviewer ran; omit when skipped |
 
-**Artifact cleanup, once the completion has succeeded.** The claim hook's task file (`.stride/.task-<IDENTIFIER>.json`, see Step 2) has to go, and so do Step 6's review-round counter and fix-path baseline (`.stride/.review-rounds-<IDENTIFIER>.json`, `.stride/.review-fixbase-<IDENTIFIER>.txt`) and the deep security review's result files (`.stride/.security-<IDENTIFIER>-r<N>.json`, one per review round, with anything else left under that `-r<N>` prefix) and Step 6.5's session reports (`.stride/.exploratory-<IDENTIFIER>-r<N>.json`, one per explorer dispatch) and this step's outcomes file (`.stride/.outcomes-<IDENTIFIER>.json`), and the claim hook's attachments download (`.stride/attachments/<IDENTIFIER>/`, the whole directory, by both names). The hook deletes the task file when it records the completion. It never removes the attachments directory at completion, so this block is the only thing that does: only after a 2xx response, and never through a symlink. It is never removed at claim time either — the hook has just written it, and on a re-claim the hook alone replaces it. After a failed or rejected completion the directory stays, because the retry may still need it, and `.stride/attachments/.gitignore` is never removed. This block covers a completion the hook did not record: a truncated, absent or unparsable response, or a hook that was not running when the completion went through. Run it only after a 2xx response: a 422 leaves the task claimed, and the retry still reads that file. **Write this task's identifier and numeric id into the first two lines** from the claim response, inside the single quotes. Write a value only when it is already a plain token: 1 to 64 letters, digits, `_` or `-` for the identifier, 1 to 20 digits for the id. Otherwise leave the quotes empty, so nothing from the response is ever parsed by the shell. Step 2's `TASK_IDENTIFIER` and `TASK_ID` do not survive Codex's separate shell turns, so a block that read them would delete nothing and say nothing. The file is named by the identifier when that is a plain token and by the numeric id otherwise, so both names are removed, each allow-listed before it reaches a path. The root is found the way the hook finds it, except that the event's `.cwd` the hook falls back on is not visible from a shell, so the block walks up to the first directory holding `.stride.md` instead, and skips aloud when there is none.
+**Artifact cleanup, once the completion has succeeded.** The claim hook's task file (`.stride/.task-<IDENTIFIER>.json`, see Step 2) has to go, and so do Step 6's review-round counter and fix-path baseline (`.stride/.review-rounds-<IDENTIFIER>.json`, `.stride/.review-fixbase-<IDENTIFIER>.txt`) and the deep security review's result files (`.stride/.security-<IDENTIFIER>-r<N>.json`, one per review round, with anything else left under that `-r<N>` prefix) and Step 6.5's session reports (`.stride/.exploratory-<IDENTIFIER>-r<N>.json`, one per explorer dispatch) and this step's outcomes file (`.stride/.outcomes-<IDENTIFIER>.json`), and Step 6.5's goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-*.json`), and the claim hook's attachments download (`.stride/attachments/<IDENTIFIER>/`, the whole directory, by both names). The hook deletes the task file when it records the completion. It never removes the attachments directory at completion, so this block is the only thing that does: only after a 2xx response, and never through a symlink. It is never removed at claim time either — the hook has just written it, and on a re-claim the hook alone replaces it. After a failed or rejected completion the directory stays, because the retry may still need it, and `.stride/attachments/.gitignore` is never removed. This block covers a completion the hook did not record: a truncated, absent or unparsable response, or a hook that was not running when the completion went through. Run it only after a 2xx response: a 422 leaves the task claimed, and the retry still reads that file. **Write this task's identifier and numeric id into the first two lines** from the claim response, inside the single quotes. Write a value only when it is already a plain token: 1 to 64 letters, digits, `_` or `-` for the identifier, 1 to 20 digits for the id. Otherwise leave the quotes empty, so nothing from the response is ever parsed by the shell. Step 2's `TASK_IDENTIFIER` and `TASK_ID` do not survive Codex's separate shell turns, so a block that read them would delete nothing and say nothing. The file is named by the identifier when that is a plain token and by the numeric id otherwise, so both names are removed, each allow-listed before it reaches a path. The root is found the way the hook finds it, except that the event's `.cwd` the hook falls back on is not visible from a shell, so the block walks up to the first directory holding `.stride.md` instead, and skips aloud when there is none.
 
 ```bash
 TF_IDENT='<identifier>'

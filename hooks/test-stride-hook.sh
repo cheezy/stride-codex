@@ -6802,7 +6802,7 @@ g30_lines() {
 }
 # g30_jq <workflow-skill>: the trigger's jq program, from the goal-scope block
 g30_jq() {
-  awk -v h="$G30_HEAD" -v a="jq -r --arg me \"\$GS_IDENT\" '" -v z="end' \"\$GS_TREE\"" '
+  awk -v h="$G30_HEAD" -v a="jq -r --arg me \"\$GS_IDENT\" --arg id \"\$GS_ID\" '" -v z="end' \"\$GS_TREE\"" '
     index($0, h) == 1 { f = 1 }
     f && /^### Sanctioned dispatch surfaces/ { exit }
     f && !g && index($0, a) { g = 1; next }
@@ -6899,9 +6899,9 @@ g30_check() {
   { [ "$pl" -gt "$ml" ] && [ "$ml" -gt 0 ] && [ "$pl" -lt "$el" ]; } || G30_FAILS="$G30_FAILS m_order"
   g30_once w_url '"$STRIDE_API_URL/api/tasks/$GS_GOAL/tree?response_view=slim"' "$G30_GS"
   g30_once w_digits "case \"\$GS_GOAL\" in ''|*[!0-9]*) GS_GOAL='' ;; esac" "$G30_GS"
-  g30_once w_jq 'elif all(.data.children[]; .identifier == $me or .status == "completed") then "goal-scope trigger: last open child"' "$G30_GS"
+  g30_once w_jq 'elif all(.data.children[]; mine or .status == "completed") then "goal-scope trigger: last open child"' "$G30_GS"
   g30_once w_auth $'exactly as Step 9\'s 1a block does' "$G30_GS"
-  g30_once w_file '"$GS_DIR/.goal-scope-$GS_IDENT-tree.json"' "$G30_GS"
+  g30_once w_file '"$GS_DIR/.goal-scope-$GS_STEM-tree.json"' "$G30_GS"
   g30_none w_notoken 'echo "$STRIDE_API_TOKEN' "$wf"
   g30_none w_notoken2 "printf '%s' \"\$STRIDE_API_TOKEN" "$wf"
   g30_once w_ptr '`docs/orchestrator-rationale.md` § Why the Last Open Child Runs a Goal-Scope Pass' "$G30_C65"
@@ -6992,7 +6992,7 @@ if [ -f "$G30_WF" ] && [ -f "$G30_SW" ] && [ -f "$G30_DOC" ]; then
     printf '%s' '{"data":{"task":{"id":1}}}' > "$G30_FX/l6.json"
     printf '%s' '{"data":{"task":{"id":1},"children":[{"identifier":"W2","status":"completed"},{"identifier":"W3","status":"completed"}]}}' > "$G30_FX/l7.json"
     printf '%s' 'not json' > "$G30_FX/l8.json"
-    g30_run() { jq -r --arg me W1 "$G30_JQ" "$1" 2>/dev/null; }
+    g30_run() { jq -r --arg me W1 --arg id '' "$G30_JQ" "$1" 2>/dev/null; }
     assert_eq "30l: every other child completed is the last open child" "goal-scope trigger: last open child" "$(g30_run "$G30_FX/l1.json")"
     assert_eq "30l: a sibling awaiting review (in_progress) means no pass" "goal-scope trigger: a sibling is still open" "$(g30_run "$G30_FX/l2.json")"
     assert_eq "30l: a blocked sibling means no pass" "goal-scope trigger: a sibling is still open" "$(g30_run "$G30_FX/l3.json")"
@@ -7001,7 +7001,7 @@ if [ -f "$G30_WF" ] && [ -f "$G30_SW" ] && [ -f "$G30_DOC" ]; then
     assert_eq "30l: no children array is an unreadable tree" "goal-scope trigger: tree unreadable" "$(g30_run "$G30_FX/l6.json")"
     assert_eq "30l: a tree that does not list this task is unreadable" "goal-scope trigger: tree unreadable" "$(g30_run "$G30_FX/l7.json")"
     assert_eq "30l: a body that does not parse makes the classifier itself fail" "fail" \
-      "$(jq -r --arg me W1 "$G30_JQ" "$G30_FX/l8.json" >/dev/null 2>&1 && echo pass || echo fail)"
+      "$(jq -r --arg me W1 --arg id '' "$G30_JQ" "$G30_FX/l8.json" >/dev/null 2>&1 && echo pass || echo fail)"
     # 30n: the WHOLE trigger block, extracted from the skill and run with curl
     # stubbed to copy a fixture (no network) in a scratch project root, so the
     # 2?? case, the || fallback, the non-2xx arm and the no-goal/no-task-file
@@ -7040,7 +7040,7 @@ if [ -f "$G30_WF" ] && [ -f "$G30_SW" ] && [ -f "$G30_DOC" ]; then
       "$(g30_block_run "$G30_FX/l1.json" 404)"
     G30_JQ_MUT="${G30_JQ/"all(.data.children[]; "/"any(.data.children[]; "}"
     assert_eq "30l: widening all() to any() in the classifier is caught" "different" \
-      "$([ "$G30_JQ_MUT" != "$G30_JQ" ] && [ "$(jq -r --arg me W1 "$G30_JQ_MUT" "$G30_FX/l2.json" 2>/dev/null)" != "goal-scope trigger: a sibling is still open" ] && echo different || echo same)"
+      "$([ "$G30_JQ_MUT" != "$G30_JQ" ] && [ "$(jq -r --arg me W1 --arg id '' "$G30_JQ_MUT" "$G30_FX/l2.json" 2>/dev/null)" != "goal-scope trigger: a sibling is still open" ] && echo different || echo same)"
   else
     echo "  SKIP: 30l (jq not installed)"
   fi
@@ -7069,7 +7069,7 @@ if [ -f "$G30_WF" ] && [ -f "$G30_SW" ] && [ -f "$G30_DOC" ]; then
   g30_neg "30m5: running the Phase 3.5 pass on any child fails the group" " t_only_sw " sw \
     'never on any other child of the goal, nor on a task with no goal' 'on any child of the goal'
   g30_neg "30m6: loosening the classifier to any() fails the group" " w_jq " wf \
-    'elif all(.data.children[]; .identifier == $me or .status == "completed")' 'elif any(.data.children[]; .status == "completed")'
+    'elif all(.data.children[]; mine or .status == "completed")' 'elif any(.data.children[]; .status == "completed")'
   g30_neg "30m7: dropping the default budget fails the group" " d_default_wf " wf \
     $'at the **default** budget (12 probes in today\'s unit)' 'at a budget of your choosing'
   g30_neg "30m8: a second coverage line in Phase 3.5 fails the group" " o_one_sw " sw \
@@ -7435,6 +7435,349 @@ if [ -f "$G31_CT" ] && [ -f "$G31_GO" ] && [ -f "$G31_DE" ] && [ -f "$G31_EN" ];
     "$(cksum < "$G31_CT") $(cksum < "$G31_GO") $(cksum < "$G31_DE") $(cksum < "$G31_EN")"
 else
   echo "  SKIP: Test Group 31 (a creation skill or agent is missing)"
+fi
+
+# ============================================================================
+# Test Group 32: D404 -- the goal-scope trigger finds the project root by the
+# .stride.md walk-up and names its files by the claim hook's stem
+# ============================================================================
+# W2684's goal-scope session found the Step 6.5 trigger block rooted at
+# ${CLAUDE_PROJECT_DIR:-.}, which Codex CLI never sets: from a nested repository
+# or a subdirectory it read the wrong .stride/ (or said "no task file") and wrote
+# its tree file where Step 8's cleanup never looks. It also named the task file
+# by the identifier alone, where the claim hook (task_file_stem) falls back to
+# the numeric id, and Step 8's outcomes block did the same, so
+# exploratory_outcomes_ok printed false for a valid record under the numeric
+# id. 32a-32c2 pin the block's text, the twin prose in Step 6.5 and Phase 3.5,
+# the cleanup prose and the changelog entry (g32_check returns the failing ids);
+# 32d-32i, with the unlettered nested-subdirectory, numeric-id and rejection
+# checks, run the extracted trigger block with curl stubbed to copy a fixture
+# (no network) from nested subdirectories, with no .stride.md anywhere, under
+# the numeric id, with a traversal identifier, a non-digit id and two roots that
+# differ, under CDPATH with a relative root (32j) and with a same-stem task
+# file naming another task (32k, 32k2); the unlettered numeric-id outcomes check, 32l2 and 32l3 run the
+# extracted Step 8 outcomes block; 32n-32n12 break COPIES of the skills and show
+# each check can fail; 32z shows the real files were never written. Reuses Group 27's g27_slice, g27_count and g27_mut.
+# What this does NOT prove: that an agent fills the two placeholder lines
+# correctly in a live Codex CLI session (no Codex CLI here).
+echo ""
+echo "=== Test Group 32: goal-scope trigger root walk-up and numeric-id stem (D404) ==="
+
+G32_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G32_SW="$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md"
+G32_CL="$PORT_ROOT/CHANGELOG.md"
+G32_HEAD=$'### The goal-scope pass: when this task is its goal\'s last open child'
+G32_PG=$'**The goal-scope pass — when this task is its goal\'s last open child.**'
+
+# g32_block <workflow-skill>: the goal-scope trigger block, unindented
+g32_block() {
+  awk -v h="$G32_HEAD" '
+    index($0, h) == 1 { f = 1 }
+    f && /^### Sanctioned dispatch surfaces/ { exit }
+    f && !g && /^ *```bash/ { g = 1; next }
+    g && /^ *```/ { exit }
+    g { sub(/^   /, ""); print }' "$1"
+}
+# g32_oblock <workflow-skill>: the Step 8 exploratory_outcomes_ok block
+g32_oblock() {
+  awk '/^\*\*Check the exploratory record before the call/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$1"
+}
+# g32_once <id> <needle> <haystack>: record id unless needle occurs exactly once
+g32_once() {
+  [ "$(g27_count "$2" "$3")" = "1" ] || G32_FAILS="$G32_FAILS $1"
+}
+# g32_check <workflow-skill> <subagent-skill>: "OK", or the sorted failing ids
+g32_check() {
+  local wf="$1" sw="$2" blk ob c65 gs c35 pgt s8 p
+  G32_FAILS=""
+  blk=$(g32_block "$wf"); ob=$(g32_oblock "$wf")
+  c65=$(g27_slice "$wf" '## Step 6.5:' '## Step 6.6:')
+  gs=$(g27_slice "$wf" "$G32_HEAD" '### Sanctioned dispatch surfaces')
+  c35=$(g27_slice "$sw" '## Phase 3.5:' '## Phase 3.6:')
+  pgt=$(grep -F -- "$G32_PG" "$sw" | tr -s ' ')
+  s8=$(g27_slice "$wf" '## Step 8:' '## Step 9:')
+  [ -n "$blk" ] || G32_FAILS="$G32_FAILS scope_blk"
+  [ -n "$ob" ] || G32_FAILS="$G32_FAILS scope_ob"
+  [ -n "$gs" ] || G32_FAILS="$G32_FAILS scope_gs"
+  [ -n "$pgt" ] || G32_FAILS="$G32_FAILS scope_pg"
+  [ -n "$s8" ] || G32_FAILS="$G32_FAILS scope_s8"
+  # r_: the root -- no cwd fallback, the CODEX_PROJECT_DIR walk-up, auth under it
+  case "$blk" in *'${CLAUDE_PROJECT_DIR:-.}'*) G32_FAILS="$G32_FAILS r_nodot" ;; esac
+  g32_once r_codex 'ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"' "$blk"
+  g32_once r_walk '[ -f "$d/.stride.md" ] && { ROOT=$d; break; }' "$blk"
+  g32_once r_dir 'GS_DIR="$ROOT/.stride"' "$blk"
+  g32_once r_cdpath '[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"' "$blk"
+  g32_once r_auth 'AUTH="$ROOT/.stride_auth.md"' "$blk"
+  # s_: one stem, the identifier else the numeric id, both allow-listed
+  g32_once s_tok "case \"\$GS_IDENT\" in ''|*[!A-Za-z0-9_-]*) GS_IDENT='' ;; esac" "$blk"
+  g32_once s_len "[ \"\${#GS_IDENT}\" -le 64 ] || GS_IDENT=''" "$blk"
+  g32_once s_digits "case \"\$GS_ID\" in ''|*[!0-9]*) GS_ID='' ;; esac" "$blk"
+  g32_once s_stem 'GS_STEM="${GS_IDENT:-$GS_ID}"' "$blk"
+  g32_once s_task 'GS_TASKF="$GS_DIR/.task-$GS_STEM.json"' "$blk"
+  g32_once s_tree 'GS_TREE="$GS_DIR/.goal-scope-$GS_STEM-tree.json"' "$blk"
+  g32_once s_ident '($ident == "" or .identifier == $ident) and ($num == "" or (.id | tostring) == $num)' "$blk"
+  g32_once s_mine 'def mine: if $me != "" then .identifier == $me else (.id | tostring) == $id end;' "$blk"
+  # o_: Step 8's outcomes block keys on the same stem
+  g32_once o_digits "case \"\$OC_ID\" in ''|*[!0-9]*) OC_ID='' ;; esac" "$ob"
+  g32_once o_stem 'OC_STEM="${OC_IDENT:-$OC_ID}"' "$ob"
+  g32_once o_out 'OUT="$ROOT/.stride/.outcomes-$OC_STEM.json"' "$ob"
+  g32_once o_prose 'named by the same stem as the task file: the identifier when it is a plain 1-64 character `[A-Za-z0-9_-]` token, else the numeric id' "$s8"
+  # c_: the cleanup paragraph names the files its globs remove
+  g32_once c_prose $'and Step 6.5\'s goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-*.json`)' "$s8"
+  g32_once c_sib '`.stride/.goal-scope-<STEM>-<id>.json`, `<STEM>` being the trigger block'"'"'s' "$gs"
+  # p_: Step 6.5 and Phase 3.5 state the same rules, once each in their own section
+  for p in \
+    'p_walk|the nearest directory above the working directory holding `.stride.md`' \
+    $'p_parent|a parent directory\'s `.stride_auth.md` is never read' \
+    'p_nested|from a nested repository or a subdirectory too' \
+    'p_token|reads the token from that root only once the task file and its goal are found' \
+    'p_cdpath|with `CDPATH` cleared' \
+    'p_ident|`identifier` and `id` match the values written into the block' \
+    'p_stem|the name the claim hook saved the task file under: the identifier when it is a plain 1-64 character `[A-Za-z0-9_-]` token, else the numeric id, 1-20 digits, and never an id holding anything but digits' \
+    'p_id|under the numeric id the block finds this task in the tree by its `id`' \
+    'p_out|checks `.stride/.outcomes-<stem>.json` under that same stem'; do
+    { [ "$(g27_count "${p#*|}" "$c65")" = "1" ] && [ "$(g27_count "${p#*|}" "$gs")" = "1" ]; } || G32_FAILS="$G32_FAILS ${p%%|*}_wf"
+    { [ "$(g27_count "${p#*|}" "$c35")" = "1" ] && [ "$(g27_count "${p#*|}" "$pgt")" = "1" ]; } || G32_FAILS="$G32_FAILS ${p%%|*}_sw"
+  done
+  if [ -z "$G32_FAILS" ]; then echo OK; else printf '%s\n' $G32_FAILS | sort -u | tr '\n' ' '; fi
+}
+
+if [ -f "$G32_WF" ] && [ -f "$G32_SW" ] && [ -f "$G32_CL" ]; then
+  G32_SUM_BEFORE="$(cksum < "$G32_WF") $(cksum < "$G32_SW")"
+  G32_REAL=$(g32_check "$G32_WF" "$G32_SW")
+  g32_ok() { # <label> <prefix>...: no failing id on the real files starts with a prefix
+    local label="$1" bad="" id pre; shift
+    for id in $G32_REAL; do
+      [ "$id" = OK ] && continue
+      for pre in "$@" scope_; do case "$id" in "$pre"*) bad="$bad $id" ;; esac; done
+    done
+    assert_eq "$label" "" "$bad"
+  }
+  g32_ok "Group 32: the goal-scope trigger block contains no \${CLAUDE_PROJECT_DIR:-.} and uses the CODEX_PROJECT_DIR walk-up" r_
+  g32_ok "32a: the trigger names its task and tree files by one stem, the identifier else the digits-only numeric id" s_
+  g32_ok "32b: Step 8's outcomes block keys .outcomes-<stem>.json on the same stem" o_
+  g32_ok "Group 32: Step 8 cleanup names the .goal-scope-<STEM> files" c_
+  g32_ok "Group 32: Phase 3.5 states the walk-up and fallback rules" p_
+  assert_eq "32c: every D404 rule found exactly once in its section" "OK" "$G32_REAL"
+  assert_eq "32c2: the CHANGELOG's [Unreleased] carries one (D404) entry" "1" \
+    "$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$G32_CL" | grep -c '^### Fixed — .*(D404)$' | tr -d ' ')"
+
+  if command -v jq >/dev/null 2>&1; then
+    G32_X="$TMPDIR_TEST/g32"; mkdir -p "$G32_X"
+    G32_HDR="$G32_X/headers.txt"
+    # Trees: W1 (or id 8179) is in progress and its one sibling is completed.
+    printf '%s' '{"data":{"task":{"id":1},"children":[{"id":7,"identifier":"W1","status":"in_progress"},{"id":8,"identifier":"W2","status":"completed"}]}}' > "$G32_X/last.json"
+    printf '%s' '{"data":{"task":{"id":1},"children":[{"id":8179,"identifier":"odd/ident","status":"in_progress"},{"id":8,"identifier":"W2","status":"completed"}]}}' > "$G32_X/num.json"
+    printf '%s' '{"data":{"task":{"id":1},"children":[{"id":8179,"identifier":"odd/ident","status":"in_progress"},{"id":8,"identifier":"W2","status":"open"}]}}' > "$G32_X/num-open.json"
+    # g32_mkproj <dir> <stem> <token>: a scratch project root holding its own
+    # .stride.md, a fake .stride_auth.md and the claim hook's task file
+    g32_mkproj() {
+      mkdir -p "$1/.stride"
+      : > "$1/.stride.md"
+      printf -- '- **API URL:** `http://127.0.0.1:9`\n- **API Token:** `%s`\n' "$3" > "$1/.stride_auth.md"
+      [ -n "$2" ] && printf '%s' '{"identifier":"W1","id":8179,"parent_id":99}' > "$1/.stride/.task-$2.json"
+      return 0
+    }
+    # g32_run <skill> <identifier> <numeric id> <cwd> <fixture> [CODEX_PROJECT_DIR]:
+    # the extracted trigger block, its two placeholder lines filled, run from
+    # <cwd> with no root variable set (or only CODEX_PROJECT_DIR) and curl
+    # stubbed to copy <fixture> to -o and to record the -H header it was given
+    g32_run() {
+      local b r1="GS_IDENT='$2'" r2="GS_ID='$3'"
+      b=$(g32_block "$1")
+      b=${b/"GS_IDENT='<identifier>'"/$r1}
+      b=${b/"GS_ID='<numeric id>'"/$r2}
+      : > "$G32_HDR"
+      ( cd "$4" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR ${6:+CODEX_PROJECT_DIR="$6"} \
+          G32_FIXTURE="$5" G32_HDR="$G32_HDR" bash -c '
+        curl() { o=""; h=""; while [ $# -gt 0 ]; do case "$1" in -o) o="$2"; shift ;; -H) h="$2"; shift ;; esac; shift; done
+                 printf "%s\n" "$h" >> "$G32_HDR"; cp "$G32_FIXTURE" "$o"; printf "200"; }
+        '"$b" 2>/dev/null )
+    }
+    # A project whose cwd is a nested git repository two directories down, with
+    # no .stride.md of its own: the walk-up must reach the project's.
+    G32_P="$G32_X/proj"; g32_mkproj "$G32_P" W1 'stride_g32project'
+    mkdir -p "$G32_P/sub/deep"
+    if command -v git >/dev/null 2>&1; then
+      ( cd "$G32_P/sub" && git init -q ) >/dev/null 2>&1
+    fi
+    assert_eq "Group 32: the extracted trigger block run from a nested subdirectory of a scratch project finds that project's task file" \
+      "goal-scope trigger: last open child" "$(g32_run "$G32_WF" W1 '' "$G32_P/sub/deep" "$G32_X/last.json")"
+    assert_eq "32d: and writes its tree file under that project's .stride/, where Step 8's cleanup looks" "yes no" \
+      "$([ -f "$G32_P/.stride/.goal-scope-W1-tree.json" ] && echo yes || echo no) $([ -e "$G32_P/sub/deep/.stride" ] && echo yes || echo no)"
+    assert_eq "32d2: the token it sent is the project's own" "Authorization: Bearer stride_g32project" "$(cat "$G32_HDR")"
+    # The walk stops at the nearest .stride.md: an inner project inside an
+    # outer one reads its own .stride_auth.md, never the parent's.
+    G32_O="$G32_X/outer"; g32_mkproj "$G32_O" '' 'stride_g32outer'
+    G32_I="$G32_O/inner"; g32_mkproj "$G32_I" W1 'stride_g32inner'; mkdir -p "$G32_I/lib"
+    g32_run "$G32_WF" W1 '' "$G32_I/lib" "$G32_X/last.json" >/dev/null
+    assert_eq "32e: the walk stops at the nearest .stride.md, so a parent's .stride_auth.md is never read" \
+      "Authorization: Bearer stride_g32inner" "$(cat "$G32_HDR")"
+    # No .stride.md anywhere above the cwd: a .stride/ in the cwd is not used.
+    G32_N="$G32_X/noproj"; mkdir -p "$G32_N/.stride"
+    printf '%s' '{"identifier":"W1","parent_id":99}' > "$G32_N/.stride/.task-W1.json"
+    G32_NONE="no root"; d="$G32_N"; while [ "$d" != "/" ]; do [ -f "$d/.stride.md" ] && G32_NONE="root at $d"; d=$(dirname "$d"); done
+    if [ "$G32_NONE" = "no root" ]; then
+      assert_eq "32f: with no .stride.md above the cwd, the block says no task file and sends nothing" \
+        "goal-scope trigger: no task file|" "$(g32_run "$G32_WF" W1 '' "$G32_N" "$G32_X/last.json")|$(cat "$G32_HDR")"
+    else
+      echo "  SKIP: 32f (a .stride.md sits above the temp directory)"
+    fi
+    # Both roots exist and differ: CODEX_PROJECT_DIR wins over the walk-up.
+    G32_C="$G32_X/codexroot"; g32_mkproj "$G32_C" W1 'stride_g32codex'
+    G32_W="$G32_X/walkroot"; g32_mkproj "$G32_W" '' 'stride_g32walk'
+    assert_eq "32g: CODEX_PROJECT_DIR wins over a walk-up root that differs" \
+      "goal-scope trigger: last open child|Authorization: Bearer stride_g32codex" \
+      "$(g32_run "$G32_WF" W1 '' "$G32_W" "$G32_X/last.json" "$G32_C")|$(cat "$G32_HDR")"
+    # The numeric-id fallback: a non-plain identifier leaves its quotes empty.
+    G32_U="$G32_X/numproj"; g32_mkproj "$G32_U" 8179 'stride_g32num'
+    assert_eq "Group 32: the trigger and outcomes blocks fall back to the numeric id for a non-plain identifier" \
+      "goal-scope trigger: last open child yes" \
+      "$(g32_run "$G32_WF" '' 8179 "$G32_U" "$G32_X/num.json") $([ -f "$G32_U/.stride/.goal-scope-8179-tree.json" ] && echo yes || echo no)"
+    assert_eq "32h: under the numeric id an open sibling still means no pass" "goal-scope trigger: a sibling is still open" \
+      "$(g32_run "$G32_WF" '' 8179 "$G32_U" "$G32_X/num-open.json")"
+    G32_LONG=$(printf 'W%064d' 0)
+    assert_eq "32h2: a 65-character identifier is not a plain token, so the numeric id is used" "goal-scope trigger: last open child" \
+      "$(g32_run "$G32_WF" "$G32_LONG" 8179 "$G32_U" "$G32_X/num.json")"
+    # Rejections: a non-digit id and a traversal identifier never name a file,
+    # even when a file sits at the path they would build.
+    printf '%s' '{"identifier":"W1","id":"81a9","parent_id":99}' > "$G32_U/.stride/.task-81a9.json"
+    mkdir -p "$G32_U/.stride/.task-.."
+    printf '%s' '{"identifier":"W1","parent_id":99}' > "$G32_U/.stride/.task-../x.json"
+    assert_eq "Group 32: a non-digit numeric id and a traversal identifier are both rejected" \
+      "goal-scope trigger: no task file|goal-scope trigger: no task file|" \
+      "$(g32_run "$G32_WF" '' 81a9 "$G32_U" "$G32_X/num.json")|$(g32_run "$G32_WF" '../x' '' "$G32_U" "$G32_X/num.json")|$(cat "$G32_HDR")"
+    G32_L=$(ln -s "$G32_U/.stride" "$G32_X/linkstride" 2>/dev/null && echo ok)
+    if [ "$G32_L" = ok ]; then
+      G32_S="$G32_X/symproj"; mkdir -p "$G32_S"; : > "$G32_S/.stride.md"; ln -s "$G32_U/.stride" "$G32_S/.stride"
+      assert_eq "32i: a .stride that is a symlink is not followed" "goal-scope trigger: no task file" \
+        "$(g32_run "$G32_WF" '' 8179 "$G32_S" "$G32_X/num.json")"
+    fi
+    # CDPATH with a relative CODEX_PROJECT_DIR: cd would print the resolved
+    # path into the capture, giving ROOT two lines, unless CDPATH is cleared.
+    assert_eq "32j: CDPATH and a relative CODEX_PROJECT_DIR still find the project's task file" \
+      "goal-scope trigger: last open child|Authorization: Bearer stride_g32project" \
+      "$(CDPATH=. g32_run "$G32_WF" W1 '' "$G32_X" "$G32_X/last.json" proj)|$(cat "$G32_HDR")"
+    # A same-stem task file naming another task is not this task's file, so
+    # its goal and its root's token are never used.
+    G32_K="$G32_X/staleproj"; g32_mkproj "$G32_K" '' 'stride_g32stale'
+    printf '%s' '{"identifier":"W9","id":500,"parent_id":55}' > "$G32_K/.stride/.task-W1.json"
+    printf '%s' '{"identifier":"W9","id":500,"parent_id":55}' > "$G32_K/.stride/.task-8179.json"
+    assert_eq "32k: a same-stem task file whose identifier differs is no task file, and nothing is sent" \
+      "goal-scope trigger: no task file|" "$(g32_run "$G32_WF" W1 7 "$G32_K" "$G32_X/last.json")|$(cat "$G32_HDR")"
+    assert_eq "32k2: and under the numeric id a file whose id differs is no task file too" \
+      "goal-scope trigger: no task file|" "$(g32_run "$G32_WF" '' 8179 "$G32_K" "$G32_X/num.json")|$(cat "$G32_HDR")"
+
+    # --- 32l: Step 8's outcomes block under the numeric id ---
+    G32_FN=$(awk '/^\*\*Check the record before you submit/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$G32_WF")
+    # g32_orun <skill> <identifier> <numeric id> <cwd>: the extracted Step 8
+    # block with its placeholders filled and the checker pasted in, no reports
+    g32_orun() {
+      local b r1="OC_IDENT='$2'" r2="OC_ID='$3'"
+      b=$(g32_oblock "$1")
+      b=${b/"OC_IDENT='<identifier>'"/$r1}
+      b=${b/"OC_ID='<numeric id>'"/$r2}
+      b=${b/\# <paste exploratory_outcomes_ok from Step 6.5 here>/$G32_FN}
+      b=${b/" '<last returned report path, one per charter>'"/}
+      ( cd "$4" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR bash -c "$b" 2>&1 )
+    }
+    jq -n '{completion_notes: "Exploratory testing skipped: no app was reachable", completion_summary: "Did it."}' \
+      > "$G32_U/.stride/.outcomes-8179.json"
+    mkdir -p "$G32_U/lib"
+    assert_eq "Group 32: exploratory_outcomes_ok prints true for a valid record saved under the numeric id" \
+      "exploratory_outcomes_ok: true" "$(g32_orun "$G32_WF" '' 8179 "$G32_U/lib")"
+    # A valid record sits at the path a non-digit id would build, so only the
+    # block's digits check can make this false.
+    jq -n '{completion_notes: "Exploratory testing skipped: no app was reachable", completion_summary: "Did it."}' \
+      > "$G32_U/.stride/.outcomes-81a9.json"
+    assert_eq "32l2: and false for a non-digit id, even with a valid record at the path it would build" "exploratory_outcomes_ok: false" \
+      "$(g32_orun "$G32_WF" '' 81a9 "$G32_U/lib")"
+    jq -n '{completion_notes: "Exploratory testing skipped: no app was reachable", completion_summary: "Did it."}' \
+      > "$G32_P/.stride/.outcomes-W1.json"
+    assert_eq "32l3: a plain identifier still keys the file on the identifier" "exploratory_outcomes_ok: true" \
+      "$(g32_orun "$G32_WF" W1 8179 "$G32_P/sub/deep")"
+
+    # --- 32n: break-it on mutated COPIES of the skills ---
+    G32_TMP="$TMPDIR_TEST/g32m"; mkdir -p "$G32_TMP"
+    # g32_mut <label> <wf|sw> <old> <new>: mutate a copy into $G32_M, or record a
+    # failed assert and return 1 when <old> is missing (no subshell, so the
+    # assert counts)
+    g32_mut() {
+      local src="$G32_WF" r
+      G32_M="$G32_TMP/wf.md"
+      [ "$2" = sw ] && { src="$G32_SW"; G32_M="$G32_TMP/sw.md"; }
+      rm -f "$G32_M"
+      r=$(g27_mut "$src" "$G32_M" "$3" "$4")
+      if [ "$r" = MISSING ]; then
+        assert_eq "$1 (mutation target present)" "present" "MISSING"
+        return 1
+      fi
+      return 0
+    }
+    # g32_neg <label> <" id "> <wf|sw> <old> <new>: the mutated copy fails the check
+    g32_neg() {
+      local w="$G32_WF" s="$G32_SW"
+      g32_mut "$1" "$3" "$4" "$5" || return 0
+      if [ "$3" = sw ]; then s="$G32_M"; else w="$G32_M"; fi
+      assert_contains "$1" "$2" " $(g32_check "$w" "$s") "
+    }
+    if g32_mut "32n" wf 'GS_DIR="$ROOT/.stride"' 'GS_DIR="${CLAUDE_PROJECT_DIR:-.}/.stride"'; then
+      assert_contains "Group 32: break-it: restoring \${CLAUDE_PROJECT_DIR:-.} fails the group" " r_nodot " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n: and the restored block, run from the nested subdirectory, no longer finds the task file" \
+        "goal-scope trigger: no task file" "$(g32_run "$G32_M" W1 '' "$G32_P/sub/deep" "$G32_X/last.json")"
+    fi
+    if g32_mut "32n2" wf 'GS_STEM="${GS_IDENT:-$GS_ID}"' 'GS_STEM="$GS_IDENT"'; then
+      assert_contains "Group 32: break-it: dropping the numeric-id fallback fails the group" " s_stem " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n2: and the block without it says no task file under the numeric id" \
+        "goal-scope trigger: no task file" "$(g32_run "$G32_M" '' 8179 "$G32_U" "$G32_X/num.json")"
+    fi
+    if g32_mut "32n3" wf "case \"\$GS_ID\" in ''|*[!0-9]*) GS_ID='' ;; esac" ''; then
+      assert_contains "32n3: letting a non-digit id through fails the group" " s_digits " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n3: and the block without the check reads the non-digit file" \
+        "goal-scope trigger: tree unreadable" "$(g32_run "$G32_M" '' 81a9 "$G32_U" "$G32_X/last.json")"
+    fi
+    if g32_mut "32n4" wf 'OC_STEM="${OC_IDENT:-$OC_ID}"' 'OC_STEM="$OC_IDENT"'; then
+      assert_contains "32n4: dropping the outcomes fallback fails the group" " o_stem " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n4: and the outcomes block without it is false under the numeric id" \
+        "exploratory_outcomes_ok: false" "$(g32_orun "$G32_M" '' 8179 "$G32_U/lib")"
+    fi
+    if g32_mut "32n5" wf 'def mine: if $me != "" then .identifier == $me else (.id | tostring) == $id end;' 'def mine: .identifier == $me;'; then
+      assert_contains "32n5: matching the tree by identifier only fails the group" " s_mine " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n5: and under the numeric id the tree then reads as unreadable" \
+        "goal-scope trigger: tree unreadable" "$(g32_run "$G32_M" '' 8179 "$G32_U" "$G32_X/num.json")"
+    fi
+    if g32_mut "32n10" wf "case \"\$OC_ID\" in ''|*[!0-9]*) OC_ID='' ;; esac" ''; then
+      assert_contains "32n10: letting a non-digit id through the outcomes block fails the group" " o_digits " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n10: and the outcomes block without the check reads the non-digit file" \
+        "exploratory_outcomes_ok: true" "$(g32_orun "$G32_M" '' 81a9 "$G32_U/lib")"
+    fi
+    if g32_mut "32n11" wf 'ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"' 'ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)"'; then
+      assert_contains "32n11: canonicalising the root with CDPATH honoured fails the group" " r_cdpath " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n11: and that block, under CDPATH with a relative root, says no task file" \
+        "goal-scope trigger: no task file" "$(CDPATH=. g32_run "$G32_M" W1 '' "$G32_X" "$G32_X/last.json" proj)"
+    fi
+    if g32_mut "32n12" wf '($ident == "" or .identifier == $ident) and ($num == "" or (.id | tostring) == $num)' 'true'; then
+      assert_contains "32n12: dropping the task file's identity check fails the group" " s_ident " " $(g32_check "$G32_M" "$G32_SW") "
+      assert_eq "32n12: and that block uses the stale file's goal and token" \
+        "goal-scope trigger: last open child|Authorization: Bearer stride_g32stale" \
+        "$(g32_run "$G32_M" W1 7 "$G32_K" "$G32_X/last.json")|$(cat "$G32_HDR")"
+    fi
+    g32_neg "32n6: reading the token before the root is known fails the group" " r_auth " wf \
+      'AUTH="$ROOT/.stride_auth.md"' 'AUTH="./.stride_auth.md"'
+    g32_neg "32n7: dropping the stem sentence from Phase 3.5 fails the group" " p_stem_sw " sw \
+      'the name the claim hook saved the task file under: the identifier when it is a plain 1-64 character `[A-Za-z0-9_-]` token, else the numeric id, 1-20 digits, and never an id holding anything but digits' 'the identifier'
+    g32_neg "32n8: dropping the stop-at-the-nearest rule from Step 6.5 fails the group" " p_parent_wf " wf \
+      $'so a parent directory\'s `.stride_auth.md` is never read' 'so any directory may be read'
+    g32_neg "32n9: dropping the goal-scope files from the cleanup prose fails the group" " c_prose " wf \
+      $', and Step 6.5\'s goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-*.json`)' ''
+    rm -rf "$G32_TMP"
+  else
+    echo "  SKIP: 32d-32n (jq not installed)"
+  fi
+  assert_eq "32z: the break-it cases left the real skill files untouched" "$G32_SUM_BEFORE" \
+    "$(cksum < "$G32_WF") $(cksum < "$G32_SW")"
+else
+  echo "  SKIP: Test Group 32 (a skill or the changelog is missing)"
 fi
 
 echo ""
