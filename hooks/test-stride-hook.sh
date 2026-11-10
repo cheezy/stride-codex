@@ -10114,7 +10114,7 @@ EOF_G40
   # --- 40a-40b: the every-fence sweep on the real files ---
   G40_REAL=$(g40_tally "$PORT_ROOT")
   assert_eq "40a: Group 40: every stem-building block in stride-workflow uses the same 1-64 identifier and 1-20 digit caps (every fence of every plugin .md; one exempt, pinned line)" \
-    "CD 17 STEM 12 ID 10 EXEMPT 1 BAD 0" "$G40_REAL"
+    "CD 19 STEM 12 ID 11 EXEMPT 1 BAD 0" "$G40_REAL"
   assert_eq "40b: Group 40: every cd in a stride-workflow shell fence runs with CDPATH cleared (and every cd in every other plugin fence)" \
     "" "$(g40_sweep "$PORT_ROOT" | awk '$1 == "BAD" && ($2 == "cd" || $2 == "pushd")')"
 
@@ -10264,6 +10264,294 @@ EOF_G40R
     "$(cksum < "$G40_WF") $(cksum < "$G40_CT") $(cksum < "$G40_KL") $(cksum < "$G40_CL")"
 else
   echo "  SKIP: Test Group 40 (a skill, the changelog or jq is missing)"
+fi
+
+# ============================================================================
+# Test Group 41: D412 -- stride-enriching-tasks' POST and PATCH examples build
+# their body with jq into a file under .stride/ and send it with -d @file
+# ============================================================================
+# D406's runner found that both request examples in stride-enriching-tasks
+# passed the task JSON as a single-quoted `-d '{ ... }'` body. Enriched fields
+# are free text from the task and the codebase, so a single quote in a pitfall
+# or a description ended the shell string: the request broke, or the text after
+# the quote ran as shell. Both examples now read the fields from a file the
+# agent writes with its file-editing tool, build the envelope with
+# `jq --slurpfile` into a body file under .stride/, send it with `-d @file`
+# and remove the body file afterwards.
+# 41a sweeps every shell fence in the skill for a single-quoted -d body; 41b
+# checks both fences' construction; 41c runs both extracted fences against a
+# stub curl with hostile field text and compares what was sent with what was
+# written; 41c5 runs a failing curl; 41d runs the refusals and 41d3 reads
+# their reasons; 41e runs the old single-quoted shape with hostile text to show
+# 41c's checks can fail; 41n1-41n8 break copies and show the case that catches
+# each; 41p pins the changelog entry; 41z shows the real
+# files were never written. The task's named unit tests keep their
+# testing_strategy names, prefixed with their Group 41 id.
+# What this does NOT prove: that an agent writes the fields file with its
+# file-editing tool and fills the id placeholder in a live Codex CLI session
+# (no Codex CLI here), or that the live API accepts the body (a stub curl).
+echo ""
+echo "=== Test Group 41: stride-enriching-tasks builds its POST and PATCH bodies with jq into a file and sends -d @file (D412) ==="
+
+G41_EN="$PORT_ROOT/skills/stride-enriching-tasks/SKILL.md"
+G41_CL="$PORT_ROOT/CHANGELOG.md"
+if [ -f "$G41_EN" ] && [ -f "$G41_CL" ] && command -v jq >/dev/null 2>&1; then
+  G41_SUM_BEFORE="$(cksum < "$G41_EN") $(cksum < "$G41_CL")"
+  G41_X="$TMPDIR_TEST/g41 dir"
+  rm -rf "$G41_X"; mkdir -p "$G41_X/proj/.stride" "$G41_X/proj/sub/dir" "$G41_X/bin" "$G41_X/port"
+  : > "$G41_X/proj/.stride.md"
+  G41_PROJ=$(CDPATH= cd -- "$G41_X/proj" && pwd -P)
+  G41_S="$G41_PROJ/.stride"
+  G41_CAP="$G41_X/sent.json"
+
+  # A stub curl: records its arguments one per line and the -d body, reading
+  # the file when the value is @path, and prints a canned response.
+  cat > "$G41_X/bin/curl" <<'G41CURL'
+#!/bin/bash
+: > "$G41_CAP.args"
+while [ $# -gt 0 ]; do
+  printf '%s\n' "$1" >> "$G41_CAP.args"
+  if [ "$1" = -d ]; then
+    case "$2" in @*) cat -- "${2#@}" > "$G41_CAP" ;; *) printf '%s' "$2" > "$G41_CAP" ;; esac
+  fi
+  shift
+done
+[ -n "${G41_FAIL:-}" ] && exit 7
+printf '%s\n' '{"data":{"identifier":"W41"}}'
+G41CURL
+  chmod +x "$G41_X/bin/curl"
+
+  # g41_sdq <file>: "SHELL n BAD n" -- curl lines in shell fences, then the
+  # single-quoted -d bodies among them (comment lines skipped)
+  g41_sdq() {
+    awk -v q="'" '
+      /^[[:space:]]*```/ {
+        l = $0; sub(/^[[:space:]]*`+/, "", l); sub(/[[:space:]].*$/, "", l)
+        if (inb) { inb = 0; next }
+        inb = 1; sh = (l ~ /^(bash|sh|shell|zsh|console)?$/); next
+      }
+      inb && sh {
+        t = $0; sub(/^[[:space:]]+/, "", t)
+        if (t ~ /^#/) next
+        # curl in command position only, never the word inside an echo
+        if (t ~ /^curl[[:space:]]/ || t ~ /(&&|\|\||;|\(|\|)[[:space:]]*curl[[:space:]]/) c++
+        if (t ~ ("(^|[[:space:]])(-d|--data|--data-raw|--data-binary|--data-ascii)[[:space:]]*" q)) b++
+      }
+      END { printf "SHELL %d BAD %d", c, b }' "$1"
+  }
+  # g41_fence <file> <heading>: the first ```bash fence after that heading line
+  g41_fence() {
+    G41_H="$2" awk '$0 == ENVIRON["G41_H"] { f = 1; next } f && /^```bash$/ { g = 1; next } g && /^```$/ { exit } g' "$1"
+  }
+  # g41_run <prog> <cwd>: "<stdout>|<stderr line count>|<status>", stub curl first on PATH
+  g41_run() {
+    local out rc
+    rm -f "$G41_CAP" "$G41_CAP.args" "$G41_X/err"
+    out=$( ( CDPATH= cd -- "$2" && env -u CODEX_PROJECT_DIR -u CLAUDE_PROJECT_DIR -u CDPATH \
+        PATH="$G41_X/bin:$PATH" G41_CAP="$G41_CAP" STRIDE_API_URL='https://stub.invalid' STRIDE_API_TOKEN='stub' \
+        bash -c "$1" ) 2>"$G41_X/err" ); rc=$?
+    printf '%s|%s|%s' "$out" "$(grep -c . "$G41_X/err")" "$rc"
+  }
+  # g41_ran: RAN when any probe left a PWNED file anywhere in the fixture
+  g41_ran() { [ -n "$(find "$G41_X" -name 'PWNED*' -print)" ] && echo RAN || echo absent; }
+  g41_unran() { find "$G41_X" -name 'PWNED*' -exec rm -f {} +; }
+  G41_POST=$(g41_fence "$G41_EN" '### Submitting the Enriched Task')
+  G41_PATCH_RAW=$(g41_fence "$G41_EN" '### Enriching an Existing Minimal Task')
+  G41_PATCH=${G41_PATCH_RAW/"EN_ID='<numeric id>'"/"EN_ID='9'"}
+
+  # --- 41a: the sweep on the real file ---
+  assert_eq "41a: Group 41: no stride-enriching-tasks shell fence passes a JSON body inside single quotes to -d (both curl fences seen)" \
+    "SHELL 2 BAD 0" "$(g41_sdq "$G41_EN")"
+
+  # --- 41b: both fences build the body with jq into a file and send -d @file ---
+  g41_shape() {
+    local f="$1" ok=yes p
+    for p in 'jq -n ' '--slurpfile t "$EN"' '> "$BODY"' '-d @"$BODY" \' '| tee "$RESP"' 'RESP="$ROOT/.stride/.enrich-response-' \
+             'elif [ -L "$BODY" ] || [ -L "$RESP" ]; then' 'EN_RC=${PIPESTATUS[0]}' 'rm -f "$BODY"' \
+             '[ -n "$ROOT" ] && ROOT="$(CDPATH= cd -- "$ROOT" 2>/dev/null && pwd -P)"' 'BODY="$ROOT/.stride/.enrich-body-'; do
+      case "$f" in *"$p"*) ;; *) ok="no:$p" ;; esac
+    done
+    case "$f" in *" -o "*|*"--output"*) ok=no:output ;; esac
+    printf '%s' "$ok"
+  }
+  assert_eq "41b: Group 41: the enrichment PATCH example builds its body with jq into a file and sends it with -d @file (and the POST example too)" \
+    "PATCH yes POST yes" "PATCH $(g41_shape "$G41_PATCH") POST $(g41_shape "$G41_POST")"
+  assert_contains "41b2: the PATCH example sends to the sanitised id, never a literal :id" \
+    '"$STRIDE_API_URL/api/tasks/$EN_ID"' "$G41_PATCH"
+
+  # --- 41c: hostile field text round-trips byte for byte ---
+  G41_Q="It's the user's board"
+  G41_B='a `touch PWNED1` and $(touch PWNED2) and $HOME'
+  G41_I3="It'\$(touch PWNED3)'s done"
+  G41_NL=$'line one\nline two\n'
+  G41_KF="lib/a'b.ex"
+  g41_fields() {
+    jq -n --arg q "$G41_Q" --arg b "$G41_B" --arg i3 "$G41_I3" --arg nl "$G41_NL" --arg kf "$G41_KF" \
+      '{pitfalls: [$q, $b, $i3], description: $nl, what: "", key_files: [{file_path: $kf, note: "", position: 0}]}' > "$1"
+  }
+  g41_fields "$G41_S/.enrich-9.json"
+  g41_fields "$G41_S/.enrich-new.json"
+  g41_unran
+  G41_R=$(g41_run "$G41_PATCH" "$G41_PROJ/sub/dir")
+  G41_RT=$(jq --slurpfile e "$G41_S/.enrich-9.json" '(keys == ["task"]) and (.task == $e[0])' "$G41_CAP" 2>/dev/null)
+  G41_Q1=$(jq -r '.task.pitfalls[0]' "$G41_CAP" 2>/dev/null)
+  G41_B1=$(jq -j '.task.description' "$G41_CAP" 2>/dev/null; printf x)
+  assert_eq "41c: Group 41: an enriched field containing a single quote survives the example round-trip byte for byte (PATCH, run from a subdirectory)" \
+    "true|$G41_Q|${G41_NL}x|absent" "$G41_RT|$G41_Q1|$G41_B1|$(g41_ran)"
+  assert_eq "41c2: the PATCH went to the sanitised id's URL, printed the response, teed it at the root and left no body file" \
+    "yes|{\"data\":{\"identifier\":\"W41\"}}|0|0|yes|no" \
+    "$(grep -qxF 'https://stub.invalid/api/tasks/9' "$G41_CAP.args" && echo yes || echo no)|$G41_R|$([ -s "$G41_S/.enrich-response-9.json" ] && echo yes || echo no)|$([ -e "$G41_S/.enrich-body-9.json" ] && echo yes || echo no)"
+  G41_R=$(g41_run "$G41_POST" "$G41_PROJ/sub")
+  assert_eq "41c3: the POST example sends agent_name beside the same task object, every hostile value intact, and runs none of it" \
+    "true|$G41_I3|absent|yes|no|0" \
+    "$(jq --slurpfile e "$G41_S/.enrich-new.json" '(keys == ["agent_name", "task"]) and .agent_name == "Codex CLI" and (.task == $e[0])' "$G41_CAP" 2>/dev/null)|$(jq -r '.task.pitfalls[2]' "$G41_CAP" 2>/dev/null)|$(g41_ran)|$(grep -qxF 'https://stub.invalid/api/tasks' "$G41_CAP.args" && echo yes || echo no)|$([ -e "$G41_S/.enrich-body-new.json" ] && echo yes || echo no)|${G41_R##*|}"
+  assert_eq "41c4: the empty field, the backtick text and the quoted path arrive as written" \
+    "|$G41_B|$G41_KF" "$(jq -r '.task.what' "$G41_CAP" 2>/dev/null)|$(jq -r '.task.pitfalls[1]' "$G41_CAP" 2>/dev/null)|$(jq -r '.task.key_files[0].file_path' "$G41_CAP" 2>/dev/null)"
+
+  # --- 41c5: a failing curl exits non-zero, says so, and leaves no body file ---
+  g41_fields "$G41_S/.enrich-9.json"
+  G41_R=$(G41_FAIL=1 g41_run "$G41_PATCH" "$G41_PROJ")
+  assert_eq "41c5: when curl itself fails the PATCH block exits non-zero with one line naming curl's status, and removes the body file" \
+    "|1|1|gone|yes" "$G41_R|$([ -e "$G41_S/.enrich-body-9.json" ] && echo left || echo gone)|$(grep -q '^curl exited 7, ' "$G41_X/err" && echo yes || echo no)"
+
+  # --- 41d: the refusals send nothing and say so on one line ---
+  # g41_refuse <prog> <fields file>: the ids of the cases that sent, printed
+  # anything but one stderr line, exited 0, or wrote through a linked body or
+  # response file. badutf8 runs only where iconv is installed, as the block's
+  # own check does.
+  G41_CASES="missing twodocs array envelope emptyobj zerobyte blank null emptystr symfields symbody symresp"
+  command -v iconv >/dev/null 2>&1 && G41_CASES="$G41_CASES badutf8"
+  g41_refuse() {
+    local p="$1" en="$2" bad="" c r body resp
+    body="${2%/*}/.enrich-body-${2##*/.enrich-}"
+    resp="${2%/*}/.enrich-response-${2##*/.enrich-}"
+    for c in $G41_CASES; do
+      rm -f "$en" "$body" "$resp" "$G41_X/elsewhere.json"
+      case "$c" in
+        missing) ;;
+        twodocs) printf '{}\n{}\n' > "$en" ;;
+        array) printf '[]\n' > "$en" ;;
+        envelope) printf '{"task":{"why":"x"}}\n' > "$en" ;;
+        emptyobj) printf '{}\n' > "$en" ;;
+        zerobyte) : > "$en" ;;
+        blank) printf '  \n\n' > "$en" ;;
+        null) printf 'null\n' > "$en" ;;
+        emptystr) printf '""\n' > "$en" ;;
+        badutf8) printf '{"why":"a\377b"}\n' > "$en" ;;
+        symfields) printf '{"why":"x"}\n' > "$G41_X/elsewhere.json"; ln -s "$G41_X/elsewhere.json" "$en" ;;
+        symbody) printf '{"why":"x"}\n' > "$en"; : > "$G41_X/elsewhere.json"; ln -s "$G41_X/elsewhere.json" "$body" ;;
+        symresp) printf '{"why":"x"}\n' > "$en"; : > "$G41_X/elsewhere.json"; ln -s "$G41_X/elsewhere.json" "$resp" ;;
+      esac
+      r=$(g41_run "$p" "$G41_PROJ")
+      ok=yes
+      [ -e "$G41_CAP" ] && ok=no
+      [ "$r" = "|1|1" ] || ok=no
+      # symfields' link target holds the fields themselves; every other target must stay empty
+      [ "$c" != symfields ] && [ -s "$G41_X/elsewhere.json" ] && ok=no
+      [ "$ok" = yes ] || bad="$bad $c"
+    done
+    rm -f "$en" "$body" "$resp" "$G41_X/elsewhere.json"
+    echo "${bad:-OK}"
+  }
+  assert_eq "41d: Group 41: both blocks refuse, with one line and no request, a missing, two-document, non-object, empty, blank, enveloped, non-UTF-8 or symlinked fields file and a symlinked body or response file" \
+    "PATCH OK POST OK" "PATCH $(g41_refuse "$G41_PATCH" "$G41_S/.enrich-9.json") POST $(g41_refuse "$G41_POST" "$G41_S/.enrich-new.json")"
+  g41_fields "$G41_S/.enrich-9.json"
+  G41_BADID=""
+  for G41_I in '9x' '../9' '' "$(printf '1%.0s' $(seq 1 21))"; do
+    G41_PH="EN_ID='<numeric id>'"; G41_RP="EN_ID='$G41_I'"
+    # an unquoted assignment: bash 3.2 keeps the inner quotes of a quoted ${v/"p"/"r"}
+    G41_P=${G41_PATCH_RAW/"$G41_PH"/"$G41_RP"}
+    G41_R=$(g41_run "$G41_P" "$G41_PROJ")
+    { [ ! -e "$G41_CAP" ] && [ "$G41_R" = "|1|1" ]; } || G41_BADID="$G41_BADID [$G41_I]"
+  done
+  assert_eq "41d2: the PATCH block refuses a non-digit, path-shaped, empty or 21-digit id with one line and no request" "OK" "${G41_BADID:-OK}"
+  G41_I=$(printf '1%.0s' $(seq 1 20)); G41_RP="EN_ID='$G41_I'"
+  G41_P=${G41_PATCH_RAW/"$G41_PH"/"$G41_RP"}
+  g41_fields "$G41_S/.enrich-$G41_I.json"
+  G41_R=$(g41_run "$G41_P" "$G41_PROJ")
+  assert_eq "41d2b: and keeps a 20-digit id, sending to that id's URL" "yes|0" \
+    "$(grep -qxF "https://stub.invalid/api/tasks/$G41_I" "$G41_CAP.args" 2>/dev/null && echo yes || echo no)|${G41_R##*|}"
+  rm -f "$G41_S/.enrich-$G41_I.json" "$G41_S/.enrich-response-$G41_I.json"
+
+  # --- 41d3: each refusal names its reason ---
+  # g41_why <prog> <cwd>: the one stderr line
+  g41_why() { g41_run "$1" "$2" >/dev/null; cat "$G41_X/err"; }
+  G41_W=""
+  rm -f "$G41_S/.enrich-9.json"
+  case "$(g41_why "$G41_PATCH" "$G41_PROJ")" in "not submitting: $G41_S/.enrich-9.json is missing or a symlink") ;; *) G41_W="$G41_W missing" ;; esac
+  printf '{}\n{}\n' > "$G41_S/.enrich-9.json"
+  case "$(g41_why "$G41_PATCH" "$G41_PROJ")" in "not submitting: $G41_S/.enrich-9.json is not exactly one JSON object"*) ;; *) G41_W="$G41_W twodocs" ;; esac
+  G41_RP="EN_ID='9x'"; G41_P=${G41_PATCH_RAW/"$G41_PH"/"$G41_RP"}
+  case "$(g41_why "$G41_P" "$G41_PROJ")" in "not submitting: no usable numeric id"*) ;; *) G41_W="$G41_W badid" ;; esac
+  case "$(g41_why "$G41_POST" "$G41_X")" in "not submitting: no project root"*) ;; *) G41_W="$G41_W noroot" ;; esac
+  rm -f "$G41_S/.enrich-9.json"
+  assert_eq "41d3: each refusal line names its reason, and the path it checked: a missing file, a malformed file, an unusable id, no project root" "OK" "${G41_W:-OK}"
+
+  # --- 41e: the old single-quoted shape, given a hostile pitfall, breaks ---
+  G41_OLD="curl -s -X PATCH -d '{\"task\": {\"pitfalls\": [\"$G41_I3\"]}}' \"\$STRIDE_API_URL/api/tasks/9\""
+  g41_unran
+  g41_run "$G41_OLD" "$G41_PROJ" >/dev/null
+  assert_eq "41e: the old single-quoted -d body, given a pitfall with a quote and a \$(), sends it mangled and runs the \$(), so 41c's checks can fail" \
+    "notsame RAN" \
+    "$([ "$(jq -r '.task.pitfalls[0]' "$G41_CAP" 2>/dev/null)" = "$G41_I3" ] && echo same || echo notsame) $(g41_ran)"
+  g41_unran
+
+  # --- 41n1-41n8: break a copy, see the case that catches it ---
+  G41_PE="$G41_X/port/SKILL.md"
+  G41_OLDL="    -d '{\"task\": {\"why\": \"...\"}}' \\"
+  G41_PAT='    -d @"$BODY" \' G41_NEW="$G41_OLDL" awk \
+    '!d && $0 == ENVIRON["G41_PAT"] { print ENVIRON["G41_NEW"]; d = 1; next } { print }' "$G41_EN" > "$G41_PE"
+  assert_eq "41n1: Group 41: break-it - restoring a single-quoted -d body makes the sweep fail" \
+    "SHELL 2 BAD 1" "$(g41_sdq "$G41_PE")"
+  G41_M=${G41_PATCH/"'{task: \$t[0]}'"/"'{task: {}}'"}
+  g41_fields "$G41_S/.enrich-9.json"
+  g41_run "$G41_M" "$G41_PROJ" >/dev/null
+  assert_eq "41n2: break-it - a filter that drops the fields makes 41c's round-trip fail" "changed false" \
+    "$([ "$G41_M" != "$G41_PATCH" ] && echo changed || echo MISSING) $(jq --slurpfile e "$G41_S/.enrich-9.json" '.task == $e[0]' "$G41_CAP" 2>/dev/null)"
+  G41_M=${G41_PATCH/' || [ -L "$EN" ]'/}
+  assert_eq "41n3: break-it - without the fields-file symlink check the PATCH block sends a linked file, so 41d catches it" \
+    "changed  symfields" "$([ "$G41_M" != "$G41_PATCH" ] && echo changed || echo MISSING) $(g41_refuse "$G41_M" "$G41_S/.enrich-9.json")"
+  G41_M=${G41_PATCH/"case \"\$EN_ID\" in ''|*[!0-9]*) EN_ID='' ;; esac"/:}
+  G41_M=${G41_M/"EN_ID='9'"/"EN_ID='9x'"}
+  printf '{"why":"x"}\n' > "$G41_S/.enrich-9x.json"
+  g41_run "$G41_M" "$G41_PROJ" >/dev/null
+  G41_CHG=changed
+  case "$G41_M" in *"case \"\$EN_ID\""*) G41_CHG=MISSING ;; esac
+  assert_eq "41n4: break-it - without the id allow-list a non-digit id reaches the URL, so 41d2 catches it" \
+    "changed sent" \
+    "$G41_CHG $(grep -qxF 'https://stub.invalid/api/tasks/9x' "$G41_CAP.args" 2>/dev/null && echo sent || echo refused)"
+  rm -f "$G41_S/.enrich-9x.json"
+  G41_M=${G41_PATCH/' || [ -L "$RESP" ]'/}
+  assert_eq "41n5: break-it - without the response-file symlink check tee writes through a linked response file, so 41d catches it" \
+    "changed  symresp" "$([ "$G41_M" != "$G41_PATCH" ] && echo changed || echo MISSING) $(g41_refuse "$G41_M" "$G41_S/.enrich-9.json")"
+  G41_RCL='[ "$EN_RC" -eq 0 ] || { echo "curl exited $EN_RC, so the request may not have been sent: see $RESP" >&2; false; }'
+  G41_M=${G41_PATCH/"$G41_RCL"/:}
+  g41_fields "$G41_S/.enrich-9.json"
+  G41_R=$(G41_FAIL=1 g41_run "$G41_M" "$G41_PROJ")
+  assert_eq "41n6: break-it - without the curl status check a failed curl exits 0, so 41c5 catches it" \
+    "changed 0" "$([ "$G41_M" != "$G41_PATCH" ] && echo changed || echo MISSING) ${G41_R##*|}"
+  G41_M=${G41_PATCH/' and (.[0] | length) > 0'/}
+  assert_eq "41n7: break-it - without the non-empty check a bare {} is sent, so 41d catches it" \
+    "changed  emptyobj" "$([ "$G41_M" != "$G41_PATCH" ] && echo changed || echo MISSING) $(g41_refuse "$G41_M" "$G41_S/.enrich-9.json")"
+  if command -v iconv >/dev/null 2>&1; then
+    G41_UL='elif command -v iconv >/dev/null 2>&1 && ! iconv -f UTF-8 -t UTF-8 "$EN" >/dev/null 2>&1; then EN_WHY="$EN is not valid UTF-8"'
+    G41_M=${G41_PATCH/"$G41_UL"/}
+    assert_eq "41n8: break-it - without the UTF-8 check a non-UTF-8 fields file is sent, so 41d catches it" \
+      "changed  badutf8" "$([ "$G41_M" != "$G41_PATCH" ] && echo changed || echo MISSING) $(g41_refuse "$G41_M" "$G41_S/.enrich-9.json")"
+  else
+    echo "  SKIP: 41n8: iconv is not installed, so the block skips its UTF-8 check and 41d skips badutf8"
+  fi
+  rm -f "$G41_S/.enrich-9.json" "$G41_S/.enrich-new.json"
+
+  # --- 41p: the changelog ---
+  assert_eq "41p: the changelog carries this entry once, as the first entry under [Unreleased]" "1 D412" \
+    "$(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[/{exit} f' "$G41_CL" | grep -c '^### Fixed — .*(D412)$') $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^### /{s=$0; sub(/.*\(/, "", s); sub(/\)$/, "", s); print s; exit}' "$G41_CL")"
+
+  rm -rf "$G41_X"
+  assert_eq "41z: the break-it cases left the real files untouched" "$G41_SUM_BEFORE" \
+    "$(cksum < "$G41_EN") $(cksum < "$G41_CL")"
+else
+  echo "  SKIP: Test Group 41 (stride-enriching-tasks, the changelog or jq is missing)"
 fi
 
 echo ""
