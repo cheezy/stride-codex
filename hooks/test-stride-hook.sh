@@ -6239,6 +6239,516 @@ else
   echo "  SKIP: Test Group 28 (a skill or the rationale doc is missing)"
 fi
 
+# ============================================================
+# Test Group 29: one outcome line per Step 6.5 charter, a coverage line, an
+# owner for every charter not performed, and exploratory_outcomes_ok before
+# the complete call (W2681)
+# ============================================================
+# Ported from stride's Group 72 (W2585, commit fe5de2e) in Codex voicing.
+# Nothing checked what Step 6.5 did: a completion could carry no exploratory
+# record at all, and a check handed back "as a human responsibility" named no
+# human. stride-completing-tasks now fixes six line formats whose prefixes are
+# byte-identical to stride's (the checker keys on them), stride-workflow
+# Step 6.5 defines exploratory_outcomes_ok, Step 8 runs it before the complete
+# call, and Step 9 repeats every HANDED BACK: line. g29_check scopes each rule
+# to its section and counts it exactly once there; 29l-29s run the checker,
+# extracted from the skill, against fixture records under $TMPDIR_TEST; 29u
+# mutates the extracted function and 29v-29w9 mutate COPIES of the skills --
+# the real files are never written. 29k compares the formats and the function
+# with stride's own when that repo is present. It reuses Group 27's
+# g27_slice, g27_count and g27_mut and Group 28's g28_block.
+# What this does NOT prove: that an agent writes the lines or runs the check
+# at run time in a live Codex CLI session (no Codex CLI here).
+echo ""
+echo "=== Test Group 29: exploratory outcome lines and exploratory_outcomes_ok (W2681) ==="
+
+G29_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G29_SW="$PORT_ROOT/skills/stride-subagent-workflow/SKILL.md"
+G29_CT="$PORT_ROOT/skills/stride-completing-tasks/SKILL.md"
+G29_DOC="$PORT_ROOT/docs/orchestrator-rationale.md"
+G29_CDOC="$PORT_ROOT/docs/completion-rationale.md"
+G29_RM="$PORT_ROOT/README.md"
+G29_AG="$PORT_ROOT/AGENTS.md"
+G29_CL="$PORT_ROOT/CHANGELOG.md"
+G29_UP="${STRIDE_UPSTREAM_DIR:-$PORT_ROOT/../stride}"
+
+# The six formats, exactly as stride writes them, except the skip line's
+# placeholder names this port's step number.
+G29_FORMATS='Exploratory charter r<N>: <the charter in your own words, redacted> | stop_reason=<value> | probes=<n> | surfaces=<a,b | none | not recorded> | outcome=<performed | partial | not performed>[ | owner=<follow-up identifier | HANDED BACK>]
+Exploratory charter u<k>: <the charter in your own words, redacted> | stop_reason=<not_dispatched | crashed> | probes=0 | surfaces=none | outcome=not performed[ | owner=<follow-up identifier | HANDED BACK>]
+HANDED BACK: <r<N> | u<k> | -> <what is left for a human to do, in your own words>
+Visual pass <r<N> | u<k>>: <what the main-loop visual pass observed>
+Exploratory coverage: <p> performed, <q> partial, <r> not performed
+Exploratory testing skipped: <why Step 6.5 did not fire>'
+# cksum of the checker function as stride ships it (fe5de2e)
+G29_FN_SUM='4029618644 5171'
+
+g29_once() {
+  [ "$(g27_count "$2" "$3")" = "1" ] || G29_FAILS="$G29_FAILS $1"
+}
+g29_none() {
+  if grep -qF -- "$2" "$3"; then G29_FAILS="$G29_FAILS $1"; fi
+}
+# g29_fn <workflow-skill>: the checker function, from the fence after its paragraph
+g29_fn() {
+  awk '/^\*\*Check the record before you submit/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$1"
+}
+# g29_line <file> <needle>: the first line number holding needle, or 0
+g29_line() {
+  local n
+  n=$(grep -nF -- "$2" "$1" | head -1 | cut -d: -f1)
+  echo "${n:-0}"
+}
+
+# g29_check <workflow-skill> <subagent-skill> <completing-skill>: OK, or the
+# sorted ids of the failed checks. Ids are prefixed by the unit test they
+# serve: p_ the six formats, c_ the coverage line, s_ the skip line, k_ the
+# checker, g_ Step 8 runs it before the call, b_ the self-check box, m_ the
+# Phase 3.5 mirror, d_ the fence write (D248) and Step 6.6, x_ the pathless
+# dispatch, v_ no visual pass, r_ redaction, h_ Step 9, f_ flowcharts.
+g29_check() {
+  local wf="$1" sw="$2" ct="$3" c65 c35 w66 s36 s8 s9 ol olb fn l
+  G29_FAILS=""
+  c65=$(g27_slice "$wf" '## Step 6.5:' '## Step 6.6:')
+  w66=$(g27_slice "$wf" '## Step 6.6:' '## Step 7:')
+  s8=$(g27_slice "$wf" '## Step 8:' '## Step 9:')
+  s9=$(g27_slice "$wf" '## Step 9:' '## Workflow Telemetry')
+  c35=$(g27_slice "$sw" '## Phase 3.5:' '## Phase 3.6:')
+  s36=$(g27_slice "$sw" '## Phase 3.6:' '## Workflow Flowchart')
+  ol=$(g27_slice "$ct" '### Outcome Lines, Coverage and Hand-Backs' '### Severity mapping')
+  olb=$(g28_block "$ct" '### Outcome Lines, Coverage and Hand-Backs')
+  for l in c65 w66 s8 s9 c35 s36 ol; do
+    eval "[ -n \"\$$l\" ]" || G29_FAILS="$G29_FAILS scope_$l"
+  done
+
+  # p_: the formats, whole and line by line
+  [ "$olb" = "$G29_FORMATS" ] || G29_FAILS="$G29_FAILS p_exact"
+  printf '%s\n' "$olb" | grep -qxF -- "$(printf '%s\n' "$G29_FORMATS" | sed -n 1p)" || G29_FAILS="$G29_FAILS p_r"
+  printf '%s\n' "$olb" | grep -qxF -- "$(printf '%s\n' "$G29_FORMATS" | sed -n 2p)" || G29_FAILS="$G29_FAILS p_u"
+  printf '%s\n' "$olb" | grep -qxF -- "$(printf '%s\n' "$G29_FORMATS" | sed -n 3p)" || G29_FAILS="$G29_FAILS p_hb"
+  printf '%s\n' "$olb" | grep -qxF -- "$(printf '%s\n' "$G29_FORMATS" | sed -n 4p)" || G29_FAILS="$G29_FAILS p_vp"
+  printf '%s\n' "$olb" | grep -qxF -- "$(printf '%s\n' "$G29_FORMATS" | sed -n 5p)" || G29_FAILS="$G29_FAILS p_cov"
+  printf '%s\n' "$olb" | grep -qxF -- "$(printf '%s\n' "$G29_FORMATS" | sed -n 6p)" || G29_FAILS="$G29_FAILS p_skip"
+  g29_once p_where 'except the `Exploratory coverage:` line, which goes in `completion_summary`; the checker reads each from that field only' "$ol"
+
+  # c_: one coverage line, in completion_summary
+  g29_once c_carrier '**Whenever Step 6.5 fired, it also carries the one `Exploratory coverage:` line**' "$(cat "$ct")"
+  g29_once c_one '**One coverage line, in `completion_summary`**, counting the outcome lines exactly.' "$ol"
+
+  # s_: the skip line replaces "record nothing extra" in every fallback
+  g29_once s_bullet '**When Step 6.5 did not fire** — plugin unavailable, no authorized-and-non-production affirmative, no reach or `ALLOWED_HOSTS` established, or a budget too small for one charter — and the task carried `manual_tests` or `edge_cases`, write one `Exploratory testing skipped: <reason>` line and no charter or coverage line.' "$ol"
+  g29_once s_ct 'record nothing beyond the one `Exploratory testing skipped: <reason>` line of § Outcome Lines, Coverage and Hand-Backs, and that only when the task carried `manual_tests` or `edge_cases`' "$(cat "$ct")"
+  g29_once s_wf 'record only the one `Exploratory testing skipped: <reason>` line `stride-completing-tasks` asks for' "$c65"
+  g29_once s_esc_wf 'The one record a skip owes is the `Exploratory testing skipped: <reason>` line, and only when the task carried `manual_tests` or `edge_cases`.' "$c65"
+  g29_once s_esc_sw 'The one record a skip owes is the `Exploratory testing skipped: <reason>` line, and only when the task carried `manual_tests` or `edge_cases`.' "$c35"
+  g29_once s_sw 'record one `Exploratory testing skipped: <reason>` line when the task carried either' "$c35"
+  g29_none s_old_wf 'record nothing extra' "$wf"
+  g29_none s_old_sw 'record nothing extra' "$sw"
+  g29_none s_old_ct 'record nothing extra' "$ct"
+  [ "$(g27_count 'non-Claude-Code' "$ol")" = "0" ] || G29_FAILS="$G29_FAILS s_voice"
+
+  # k_: the checker
+  g29_once k_para '**Check the record before you submit — `exploratory_outcomes_ok`.**' "$c65"
+  fn=$(g29_fn "$wf")
+  printf '%s\n' "$fn" | head -1 | grep -q '^exploratory_outcomes_ok() {' || G29_FAILS="$G29_FAILS k_fn"
+  [ "$(printf '%s\n' "$fn" | cksum)" = "$G29_FN_SUM" ] || G29_FAILS="$G29_FAILS k_sum"
+  g29_once k_only 'It prints only `exploratory_outcomes_ok: true` or `exploratory_outcomes_ok: false`, never task, charter or report text, and it parses the lines with `jq` alone: nothing in them is ever run or evaluated.' "$c65"
+  g29_once k_false '**On `false`, do not submit**: fix the lines — never the reports, and never the arguments.' "$c65"
+  g29_once k_owner 'the gate needs a record and an owner, not coverage.' "$c65"
+  g29_once k_limits '**Four limits, stated rather than papered over.**' "$c65"
+  g29_once k_ptr '`docs/orchestrator-rationale.md` § Why Every Charter Needs a Record and an Owner' "$c65"
+  g29_once k_state 'State it as one outcome line per charter, plus one `Exploratory coverage:` line in `completion_summary`' "$c65"
+
+  # g_: Step 8 runs it before the complete call and sends what it checked
+  g29_once g_para '**Check the exploratory record before the call — `exploratory_outcomes_ok`.**' "$s8"
+  g29_once g_same '**Make the call only after `exploratory_outcomes_ok: true`, and send the strings you checked:**' "$s8"
+  g29_once g_fresh "Codex CLI starts every shell turn fresh, so paste the function from Step 6.5's checker paragraph into the same invocation." "$s8"
+  g29_once g_run "exploratory_outcomes_ok \"\$OUT\" '<last returned report path, one per charter>'" "$s8"
+  g29_once g_tool '**write `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool**' "$s8"
+  g29_once g_noshell 'never through a shell `echo`, `printf`, heredoc or quoted `--arg`' "$s8"
+  g29_once g_prewrite 'a symlink at either means do not write and do not submit' "$s8"
+  [ "$(g27_count "<completion_notes>" "$s8")" = "0" ] || G29_FAILS="$G29_FAILS g_paste"
+  g29_once g_clean_id '[ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.outcomes-$TF_IDENT.json"' "$s8"
+  g29_once g_clean_num '[ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.outcomes-$TF_ID.json"' "$s8"
+  g29_once g_ct '**After Step 6.5, send the strings you checked.**' "$(cat "$ct")"
+  local a b c d
+  a=$(g29_line "$wf" '## Step 8: Complete the Task')
+  b=$(g29_line "$wf" '**Check the exploratory record before the call — `exploratory_outcomes_ok`.**')
+  c=$(g29_line "$wf" "exploratory_outcomes_ok \"\$OUT\" '<last returned report path, one per charter>'")
+  d=$(g29_line "$wf" 'Call `PATCH /api/tasks/:id/complete` with ALL required fields:')
+  { [ "$a" -gt 0 ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && [ "$c" -lt "$d" ]; } 2>/dev/null || G29_FAILS="$G29_FAILS g_order"
+
+  # b_: the self-check box, after the cosmetic box and before the not-bypassable line
+  g29_once b_box '- [ ] **Every Step 6.5 / Phase 3.5 charter has a recorded outcome and an owner.**' "$(cat "$ct")"
+  a=$(g29_line "$ct" '- [ ] **`cosmetic` findings are reported, never suppressed.**')
+  b=$(g29_line "$ct" '- [ ] **Every Step 6.5 / Phase 3.5 charter has a recorded outcome and an owner.**')
+  c=$(g29_line "$ct" 'This gate is **not bypassable**')
+  { [ "$a" -gt 0 ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ]; } 2>/dev/null || G29_FAILS="$G29_FAILS b_order"
+  g29_once b_true '`exploratory_outcomes_ok` must have printed `true`.' "$(cat "$ct")"
+
+  # m_: the Phase 3.5 mirror
+  g29_once m_check_sw 'then check them before the complete call with `exploratory_outcomes_ok`, defined in `stride-workflow` Step 6.5, passing each charter'"'"'s last returned report path' "$c35"
+
+  # d_: the fence is written to the path sent (D248), and Step 6.6 skips only a session with no file
+  g29_once d_write_wf "When you sent a path, write that fence's parsed object to it (D248)" "$c65"
+  g29_once d_write_sw "When you sent a path, write that fence's parsed object to it (D248)" "$c35"
+  g29_once d_noshell_wf 'never through a shell `echo`, `printf` or heredoc, since the text is application-influenced' "$c65"
+  g29_once d_noshell_sw 'never through a shell `echo`, `printf` or heredoc, since the text is application-influenced' "$c35"
+  g29_once d_crash_wf 'Its line takes a `u<k>` key with `stop_reason=crashed`, never the `r<N>` it was sent' "$c65"
+  g29_once d_crash_sw 'Its line takes a `u<k>` key with `stop_reason=crashed`, never the `r<N>` it was sent' "$c35"
+  g29_once d_row 'write its parsed object to that path (D248) and read it as the report' "$c65"
+  g29_once d_harden_wf 'neither a report nor a fence Step 6.5 wrote there' "$w66"
+  g29_once d_harden_sw 'neither a report nor a fence Phase 3.5 wrote there' "$s36"
+  g29_once d_row66 'a fence Step 6.5 wrote to its path (D248) is a file like any other' "$w66"
+  g29_once d_ds_any '| Step 6.5 dispatched or built any charter |' "$c65"
+  g29_once d_ds_skip '| Step 6.5 did not fire on a task carrying `manual_tests` or `edge_cases` |' "$c65"
+
+  # x_: a dispatch sent no report path is recorded, never claimed true
+  g29_once x_wf '`exploratory_outcomes_ok: not run — no report path was sent`' "$c65"
+  g29_once x_ct '`exploratory_outcomes_ok: not run — no report path was sent`' "$(cat "$ct")"
+  g29_once x_ol '**A dispatch sent no report path**' "$ol"
+
+  # v_ / r_: no visual pass here; a line is redacted, never dropped
+  g29_once v_rule 'No stride-codex step runs a visual pass yet, so never write a `Visual pass` line here' "$ol"
+  g29_once r_rule '**A line whose charter would name a credential, token or internal hostname is redacted, never dropped**' "$ol"
+  g29_once r_sec 'The outcome lines are covered on the same terms: redact the value, keep the line.' "$(cat "$ct")"
+
+  # h_ / f_: Step 9 repeats the hand-backs; the flowcharts carry both
+  g29_once h_repeat '**Repeat every `HANDED BACK:` line this completion wrote to the user**' "$s9"
+  g29_once h_owner 'Step 9 repeats every `HANDED BACK:` line to the user.' "$ol"
+  g29_once f_wf_chart 'exploratory_outcomes_ok must print true first' "$(cat "$wf")"
+  g29_once f_wf_hb 'HANDED BACK: lines? --> repeat each to the user' "$(cat "$wf")"
+  g29_once f_wf_ref 'exploratory_outcomes_ok must print true; repeat HANDED BACK: lines at 9' "$(cat "$wf")"
+  g29_once f_sw_ref 'exploratory_outcomes_ok before completing' "$(cat "$sw")"
+
+  if [ -z "$G29_FAILS" ]; then echo OK; else printf '%s\n' $G29_FAILS | sort -u | tr '\n' ' ' | sed 's/ $//'; fi
+}
+
+if [ -f "$G29_WF" ] && [ -f "$G29_SW" ] && [ -f "$G29_CT" ] && [ -f "$G29_DOC" ]; then
+  G29_SUM_BEFORE="$(cksum < "$G29_WF") $(cksum < "$G29_SW") $(cksum < "$G29_CT")"
+  G29_REAL=$(g29_check "$G29_WF" "$G29_SW" "$G29_CT")
+  g29_ok() {
+    local bad="" id
+    for id in $G29_REAL; do
+      case "$id" in "$2"*|scope_*) bad="$bad $id" ;; esac
+    done
+    assert_eq "$1" "" "$bad"
+  }
+  g29_ok "29a: each outcome-line prefix matches upstream byte for byte, in completion_notes but for coverage" p_
+  g29_ok "29b: completion_summary carries exactly one Exploratory coverage: line" c_
+  g29_ok "29c: the Exploratory testing skipped reason line is documented and replaces 'record nothing extra'" s_
+  g29_ok "29d: exploratory_outcomes_ok is defined in Step 6.5, byte-identical, prints only a boolean" k_
+  g29_ok "29e: Step 8 runs exploratory_outcomes_ok before the complete call and sends what it checked" g_
+  g29_ok "29f: the hard gate carries the outcome box after the cosmetic box" b_
+  g29_ok "29g: Phase 3.5 mirrors the check before the complete call" m_
+  g29_ok "29g: the fence is written to the path sent (D248), and Step 6.6 and Phase 3.6 skip only a session with no file there" d_
+  g29_ok "29h: Step 9 repeats every HANDED BACK: line, and the flowcharts say so" h_
+  g29_ok "29h: the flowcharts and quick references name the check" f_
+  g29_ok "29i: outcome lines are redacted on the same terms, never dropped" r_
+  g29_ok "29i: no stride-codex step writes a Visual pass line" v_
+  g29_ok "29i: a pathless dispatch is recorded as not run, never as true" x_
+  assert_eq "29t: every rule found exactly once in its section" "OK" "$G29_REAL"
+
+  # --- 29j: rationale, README, AGENTS and CHANGELOG ---
+  assert_eq "29j: the rationale section exists once, in orchestrator-rationale.md and not completion-rationale.md" "1 0" \
+    "$(grep -cx '## Why Every Charter Needs a Record and an Owner' "$G29_DOC" | tr -d ' ') $(grep -cx '## Why Every Charter Needs a Record and an Owner' "$G29_CDOC" | tr -d ' ')"
+  assert_eq "29j: README and AGENTS each describe the record once" "1 1" \
+    "$(grep -oF 'Since W2681,' "$G29_RM" | wc -l | tr -d ' ') $(grep -oF 'Since W2681,' "$G29_AG" | wc -l | tr -d ' ')"
+  G29_UNREL=$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$G29_CL")
+  assert_eq "29j: CHANGELOG [Unreleased] carries one (W2681) entry, ahead of W2680" "1 yes" \
+    "$(printf '%s\n' "$G29_UNREL" | grep -c '^### Changed — .*(W2681)$' | tr -d ' ') $(printf '%s\n' "$G29_UNREL" | grep '^### ' | head -1 | grep -q '(W2681)$' && echo yes || echo no)"
+  G29_ENTRY=$(printf '%s\n' "$G29_UNREL" | awk '/^### Changed — .*\(W2681\)$/{f=1; next} f && /^### /{exit} f')
+  assert_eq "29j: the entry names what does not apply and the porting-doc differences once each" "1 1" \
+    "$(printf '%s\n' "$G29_ENTRY" | grep -c '^- \*\*Not applicable here\.\*\*' | tr -d ' ') $(printf '%s\n' "$G29_ENTRY" | grep -c '^- \*\*Porting-doc differences\.\*\*' | tr -d ' ')"
+
+  # --- 29k: the formats and the function match stride's own ---
+  G29_UMTF="$G29_UP/skills/stride-completing-tasks/manual-testing-findings.md"
+  G29_UOET="$G29_UP/skills/stride-workflow/optional-exploratory-testing.md"
+  if [ -f "$G29_UMTF" ] && [ -f "$G29_UOET" ]; then
+    G29_UB=$(g28_block "$G29_UMTF" '### Outcome Lines, Coverage and Hand-Backs')
+    G29_CB=$(g28_block "$G29_CT" '### Outcome Lines, Coverage and Hand-Backs')
+    assert_eq "29k: each line's prefix, up to its first placeholder, is upstream's with no rewriting" \
+      "$(printf '%s\n' "$G29_UB" | sed 's/<.*//')" "$(printf '%s\n' "$G29_CB" | sed 's/<.*//')"
+    assert_eq "29k2: the whole block is upstream's but for the step number" \
+      "$(printf '%s\n' "$G29_UB" | sed 's/Step 5\.5/Step 6.5/')" "$G29_CB"
+    assert_eq "29k3: the checker function is byte-identical to upstream's" \
+      "$(g29_fn "$G29_UOET" | cksum)" "$(g29_fn "$G29_WF" | cksum)"
+  else
+    echo "  SKIP: 29k: stride not found at $G29_UP -- the cross-repo compare runs only when the upstream repo is present"
+  fi
+
+  # --- 29l-29s: the checker, extracted from the skill and run ---
+  if command -v jq >/dev/null 2>&1; then
+    G29_FN=$(g29_fn "$G29_WF")
+    eval "$G29_FN"
+    G29_D="$TMPDIR_TEST/g29"; G29_S="$G29_D/.stride"; mkdir -p "$G29_S"
+    G29_OK='exploratory_outcomes_ok: true'
+    G29_NO='exploratory_outcomes_ok: false'
+    g29_rep() { # $1=N $2=stop_reason $3=probes $4=surfaces JSON
+      jq -nc --arg s "$2" --argjson p "$3" --argjson u "$4" \
+        '{contract_version: "1.1", charter: "x", status: "completed", bugs: [],
+          session_sheet: {probe_budget: 12, probes_attempted: $p, stop_reason: $s, surfaces_used: $u}}' \
+        > "$G29_S/.exploratory-W9-r$1.json"
+    }
+    g29_pay() { # $1=notes $2=summary
+      jq -n --arg n "$1" --arg s "$2" '{completion_notes: $n, completion_summary: $s}' > "$G29_D/p.json"
+    }
+    g29() { exploratory_outcomes_ok "$G29_D/p.json" "$@" 2>&1; }
+    G29_R1="$G29_S/.exploratory-W9-r1.json"; G29_R2="$G29_S/.exploratory-W9-r2.json"; G29_R3="$G29_S/.exploratory-W9-r3.json"
+    g29_rep 1 charter_quiet 6 '["http","source"]'
+    g29_rep 2 probe_budget_exhausted 12 '["http"]'
+    g29_rep 3 blocked 0 '[]'
+    G29_L1='Exploratory charter r1: the board filter by label | stop_reason=charter_quiet | probes=6 | surfaces=http,source | outcome=performed'
+    G29_L2='Exploratory charter r2: the CSV export | stop_reason=probe_budget_exhausted | probes=12 | surfaces=http | outcome=partial'
+    G29_L3='Exploratory charter r3: the import page | stop_reason=blocked | probes=0 | surfaces=none | outcome=not performed | owner=HANDED BACK'
+    G29_HB='HANDED BACK: r3 run the import manual test against a running app'
+    G29_COV='Exploratory coverage: 1 performed, 1 partial, 1 not performed'
+    G29_C1='Exploratory coverage: 1 performed, 0 partial, 0 not performed'
+    G29_NOTES="Implemented the thing.
+$G29_L1
+$G29_L2
+$G29_L3
+$G29_HB"
+    g29_pay "$G29_NOTES" "Did it.
+$G29_COV"
+    assert_eq "29l: three charters, one blocked at zero probes and handed back, is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    assert_eq "29l2: and exits 0" "0" "$(exploratory_outcomes_ok "$G29_D/p.json" "$G29_R1" "$G29_R2" "$G29_R3" >/dev/null 2>&1; echo $?)"
+    g29_pay "Implemented.
+$G29_L1
+$G29_L3
+$G29_HB" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+    assert_eq "29l3: a charter with no outcome line is false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    assert_eq "29l4: and exits 1" "1" "$(exploratory_outcomes_ok "$G29_D/p.json" "$G29_R1" "$G29_R2" "$G29_R3" >/dev/null 2>&1; echo $?)"
+    # Step 6.5 skipped
+    g29_pay "Done.
+Exploratory testing skipped: the plugin is not installed" "Did it."
+    assert_eq "29m: Step 6.5 skipped with a reason line, and no charter, is true" "$G29_OK" "$(g29)"
+    g29_pay "Done." "Did it."
+    assert_eq "29m2: no charter and no skip line is false" "$G29_NO" "$(g29)"
+    g29_pay "$G29_NOTES
+Exploratory testing skipped: no reason" "$G29_COV"
+    assert_eq "29m3: a skip line beside charters is false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "Exploratory testing skipped: " "Did it."
+    assert_eq "29m4: a skip line with no reason is false" "$G29_NO" "$(g29)"
+    # every charter handed back
+    G29_U1='Exploratory charter u1: a live Codex CLI run of Step 6.5 | stop_reason=not_dispatched | probes=0 | surfaces=none | outcome=not performed | owner=HANDED BACK'
+    G29_U2='Exploratory charter u2: the auth-gated settings page | stop_reason=not_dispatched | probes=0 | surfaces=none | outcome=not performed | owner=HANDED BACK'
+    g29_pay "$G29_U1
+$G29_U2
+HANDED BACK: u1 run Step 6.5 in a Codex CLI session
+HANDED BACK: u2 sign in and check the settings page" "Exploratory coverage: 0 performed, 0 partial, 2 not performed"
+    assert_eq "29n: every charter handed back, zero performed, is true" "$G29_OK" "$(g29)"
+    g29_pay "$G29_U1
+$G29_U2
+HANDED BACK: u1 run Step 6.5 in a Codex CLI session
+HANDED BACK: u2 sign in and check the settings page" "Exploratory coverage: 1 performed, 0 partial, 1 not performed"
+    assert_eq "29n2: the same record claiming one performed is false" "$G29_NO" "$(g29)"
+    g29_pay "${G29_U1/probes=0/probes=3}
+HANDED BACK: u1 x" "Exploratory coverage: 0 performed, 0 partial, 1 not performed"
+    assert_eq "29n3: an undispatched charter with probes is false" "$G29_NO" "$(g29)"
+    g29_pay "${G29_U1/not_dispatched/crashed}
+HANDED BACK: u1 re-run the charter" "Exploratory coverage: 0 performed, 0 partial, 1 not performed"
+    assert_eq "29n4: a dispatch that returned nothing, keyed u1 crashed and handed back, is true" "$G29_OK" "$(g29)"
+    # owners
+    g29_pay "$G29_L1
+$G29_L2
+${G29_L3% | owner=HANDED BACK}" "$G29_COV"
+    assert_eq "29o: a not-performed charter with no owner is false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_L1
+$G29_L2
+$G29_L3" "$G29_COV"
+    assert_eq "29o2: owner=HANDED BACK with no HANDED BACK line is false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_L1
+$G29_L2
+$G29_L3
+HANDED BACK: r2 something else" "$G29_COV"
+    assert_eq "29o3: a HANDED BACK line under another key is false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_L1
+$G29_L2
+${G29_L3/owner=HANDED BACK/owner=D123}" "$G29_COV"
+    assert_eq "29o4: owner=<follow-up identifier> is true" "$G29_OK" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    # coverage
+    g29_pay "$G29_NOTES" "Exploratory coverage: 2 performed, 1 partial, 0 not performed"
+    assert_eq "29p: a miscounted coverage line is false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_NOTES
+$G29_COV" "Did it."
+    assert_eq "29p2: a coverage line in completion_notes instead of completion_summary is false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_NOTES" "$G29_COV
+$G29_COV"
+    assert_eq "29p3: two coverage lines are false" "$G29_NO" "$(g29 "$G29_R1" "$G29_R2" "$G29_R3")"
+    # outcome ceiling and copied fields
+    g29_pay "${G29_L2/outcome=partial/outcome=performed}" "$G29_C1"
+    assert_eq "29q: probe budget exhausted claimed performed is false" "$G29_NO" "$(g29 "$G29_R2")"
+    g29_pay "${G29_L3/outcome=not performed | owner=HANDED BACK/outcome=partial}" "Exploratory coverage: 0 performed, 1 partial, 0 not performed"
+    assert_eq "29q2: blocked at zero probes claimed partial is false" "$G29_NO" "$(g29 "$G29_R3")"
+    g29_pay "${G29_L1/outcome=performed/outcome=partial}" "Exploratory coverage: 0 performed, 1 partial, 0 not performed"
+    assert_eq "29q3: claiming less than the report supports is true" "$G29_OK" "$(g29 "$G29_R1")"
+    g29_pay "${G29_L1/probes=6/probes=7}" "$G29_C1"
+    assert_eq "29q4: a probe count other than the report's is false" "$G29_NO" "$(g29 "$G29_R1")"
+    g29_rep 4 no_observation_surface 3 '["http"]'; G29_R4="$G29_S/.exploratory-W9-r4.json"
+    g29_pay 'Exploratory charter r4: the progress bar | stop_reason=no_observation_surface | probes=3 | surfaces=http | outcome=partial' "Exploratory coverage: 0 performed, 1 partial, 0 not performed"
+    assert_eq "29q5: no_observation_surface claimed partial with no visual pass is false" "$G29_NO" "$(g29 "$G29_R4")"
+    # redaction
+    G29_RED='Exploratory charter r1: the API keys page with [REDACTED — charter named a credential] | stop_reason=charter_quiet | probes=6 | surfaces=http,source | outcome=performed'
+    g29_pay "$G29_RED" "$G29_C1"
+    assert_eq "29r: a redacted line still parses and is true" "$G29_OK" "$(g29 "$G29_R1")"
+    g29_pay "Implemented; the credential line was dropped." "$G29_C1"
+    assert_eq "29r2: the same record with that line dropped is false" "$G29_NO" "$(g29 "$G29_R1")"
+    g29_pay "Exploratory charter r1: \$(touch \"$G29_D/PWNED\") | stop_reason=charter_quiet | probes=6 | surfaces=http,source | outcome=performed" "$G29_C1"
+    G29_OUT=$(g29 "$G29_R1")
+    assert_eq "29r3: charter text is never run, and the output is the verdict alone" "$G29_OK no" \
+      "$G29_OUT $([ -e "$G29_D/PWNED" ] && echo yes || echo no)"
+    # D248, line shape and arguments
+    G29_R5="$G29_S/.exploratory-W9-r5.json"; rm -f "$G29_R5"
+    g29_pay "Exploratory charter r5: the fence session | stop_reason=charter_quiet | probes=4 | surfaces=http | outcome=performed" "$G29_C1"
+    assert_eq "29s: with no report file, a line claiming the fence's values is false" "$G29_NO" "$(g29 "$G29_R5")"
+    g29_rep 5 charter_quiet 4 '["http"]'
+    assert_eq "29s2: once the fence object is written to the path sent, it is true" "$G29_OK" "$(g29 "$G29_R5")"
+    g29_pay "${G29_L1/Exploratory charter/Exploratory Charter}" "$G29_C1"
+    assert_eq "29s3: an altered prefix does not count, so the record is false" "$G29_NO" "$(g29 "$G29_R1")"
+    g29_pay "$G29_L1" "$G29_C1"
+    assert_eq "29s4: a relative report path is refused" "$G29_NO" "$(cd "$G29_D" && exploratory_outcomes_ok "$G29_D/p.json" ".stride/.exploratory-W9-r1.json" 2>&1)"
+    mkdir -p "$G29_D/other"; cp "$G29_R1" "$G29_D/other/.exploratory-W9-r1.json"
+    assert_eq "29s5: a report outside a .stride directory is refused" "$G29_NO" "$(g29 "$G29_D/other/.exploratory-W9-r1.json")"
+    assert_eq "29s6: a missing outcomes file is false" "$G29_NO" "$(exploratory_outcomes_ok "$G29_D/nope.json" "$G29_R1" 2>&1)"
+    if command -v zsh >/dev/null 2>&1; then
+      g29_pay "$G29_NOTES" "Did it.
+$G29_COV"
+      assert_eq "29s7: zsh gives the same verdict on the complete record" "$G29_OK" \
+        "$(G29_FN="$G29_FN" zsh -c 'eval "$G29_FN"; exploratory_outcomes_ok "$@"' z "$G29_D/p.json" "$G29_R1" "$G29_R2" "$G29_R3" 2>&1)"
+    else
+      echo "  SKIP: 29s7: zsh not installed"
+    fi
+
+    # --- 29e2: the Step 8 block, placeholders filled, checks a file written by the agent ---
+    # The agent writes the outcomes file with its file-editing tool (simulated by
+    # jq here); the block passes no note text through the shell, so a quote and
+    # a command substitution in restated charter text stay inert data.
+    G29_B8=$(awk '/^\*\*Check the exploratory record before the call/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$G29_WF")
+    G29_B8=${G29_B8/OC_IDENT=\'<identifier>\'/OC_IDENT=W9}
+    G29_B8=${G29_B8/\# <paste exploratory_outcomes_ok from Step 6.5 here>/$G29_FN}
+    G29_B8=${G29_B8/\'<last returned report path, one per charter>\'/\"\$G29_R1\"}
+    touch "$G29_D/.stride.md"; rm -f "$G29_S/.outcomes-W9.json" "$G29_D/PWNED8"
+    G29_Q="Exploratory charter r1: it's the board's filter '\$(touch $G29_D/PWNED8)' | stop_reason=charter_quiet | probes=6 | surfaces=http,source | outcome=performed"
+    jq -n --arg n "$G29_Q" --arg s "Did it.
+$G29_C1" '{completion_notes: $n, completion_summary: $s}' > "$G29_S/.outcomes-W9.json"
+    assert_eq "29e2: the Step 8 block checks the agent-written file, true on a sound record whose charter text holds quotes" "$G29_OK|no" \
+      "$(cd "$G29_D" && G29_R1="$G29_R1" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$G29_B8" 2>&1)|$([ -e "$G29_D/PWNED8" ] && echo yes || echo no)"
+    jq -n --arg n "${G29_L3% | owner=HANDED BACK}" --arg s 'Exploratory coverage: 0 performed, 0 partial, 1 not performed' \
+      '{completion_notes: $n, completion_summary: $s}' > "$G29_S/.outcomes-W9.json"
+    assert_eq "29e3: and false on a record missing its owner" "$G29_NO" \
+      "$(cd "$G29_D" && G29_R1="$G29_R3" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$G29_B8" 2>&1)"
+    rm -f "$G29_S/.outcomes-W9.json"
+    assert_eq "29e4: and false when the agent wrote no outcomes file" "$G29_NO" \
+      "$(cd "$G29_D" && G29_R1="$G29_R1" CODEX_PROJECT_DIR= CLAUDE_PROJECT_DIR= bash -c "$G29_B8" 2>&1)"
+
+    # --- 29u: mutating the extracted function proves the fixture cases bite ---
+    g29_fmut() { # $1=old $2=new; prints the checker's verdict on the current p.json and $3...
+      local old="$1" new="$2"; shift 2
+      ( G29_M=${G29_FN/"$old"/"$new"}
+        [ "$G29_M" != "$G29_FN" ] || { echo MISSING; exit 0; }
+        eval "$G29_M"; exploratory_outcomes_ok "$G29_D/p.json" "$@" 2>&1 )
+    }
+    g29_pay "$G29_L1
+$G29_L2
+${G29_L3% | owner=HANDED BACK}" "$G29_COV"
+    assert_eq "29u: without the owner rule, the ownerless record would pass" "$G29_OK" "$(g29_fmut 'and all($rows[]; owned)' '' "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "$G29_NOTES" "Exploratory coverage: 2 performed, 1 partial, 0 not performed"
+    assert_eq "29u2: without the tally, the miscount would pass" "$G29_OK" \
+      "$(g29_fmut '== [tally("performed"), tally("partial"), tally("not performed")]' '!= null' "$G29_R1" "$G29_R2" "$G29_R3")"
+    g29_pay "Done." "Did it."
+    assert_eq "29u3: without the skip-line rule, the empty record would pass" "$G29_OK" "$(g29_fmut 'and $skips >= 1' '' )"
+    g29_pay "${G29_L2/outcome=partial/outcome=performed}" "$G29_C1"
+    assert_eq "29u4: without the outcome ceiling, an exhausted budget claimed performed would pass (29q)" "$G29_OK" \
+      "$(g29_fmut ' and (.out | rank) <= ($c | ceiling)' '' "$G29_R2")"
+    g29_pay "${G29_L1/probes=6/probes=7}" "$G29_C1"
+    assert_eq "29u5: without the copied probe count, a wrong count would pass (29q4)" "$G29_OK" \
+      "$(g29_fmut 'and (.probes | tonumber) == $c.probes' '' "$G29_R1")"
+    g29_pay "$G29_L1" "$G29_C1"
+    assert_eq "29u6: without the absolute-path rule, a relative report path would pass (29s4)" "$G29_OK" \
+      "$(cd "$G29_D" && g29_fmut 'case "$f" in ( /* ) ;; ( * ) bad=1; continue ;; esac' ':' ".stride/.exploratory-W9-r1.json")"
+    assert_eq "29u7: without the .stride directory rule, a report elsewhere would pass (29s5)" "$G29_OK" \
+      "$(g29_fmut '[ "$(basename "$(dirname "$f")")" = .stride ] || { bad=1; continue; }' ':' "$G29_D/other/.exploratory-W9-r1.json")"
+    g29_pay "$G29_NOTES
+Exploratory testing skipped: no reason" "$G29_COV"
+    assert_eq "29u8: without the no-skip-beside-charters rule, 29m3 would pass" "$G29_OK" \
+      "$(g29_fmut 'else $skips == 0 and' 'else' "$G29_R1" "$G29_R2" "$G29_R3")"
+  else
+    echo "  SKIP: 29l-29u: jq not installed -- the checker needs it"
+  fi
+
+  # --- 29v-29w9: break-it on mutated COPIES of the skills ---
+  G29_TMP="$TMPDIR_TEST/g29m"; mkdir -p "$G29_TMP"
+  g29_neg() {
+    local w="$G29_WF" s="$G29_SW" c="$G29_CT" r=""
+    rm -f "$G29_TMP/wf.md" "$G29_TMP/sw.md" "$G29_TMP/ct.md"
+    case "$3" in
+      wf) r=$(g27_mut "$G29_WF" "$G29_TMP/wf.md" "$4" "$5"); w="$G29_TMP/wf.md" ;;
+      sw) r=$(g27_mut "$G29_SW" "$G29_TMP/sw.md" "$4" "$5"); s="$G29_TMP/sw.md" ;;
+      ct) r=$(g27_mut "$G29_CT" "$G29_TMP/ct.md" "$4" "$5"); c="$G29_TMP/ct.md" ;;
+    esac
+    if [ "$r" = "MISSING" ]; then
+      assert_eq "$1 (mutation target present)" "present" "MISSING"
+      return
+    fi
+    assert_contains "$1" "$2" " $(g29_check "$w" "$s" "$c") "
+  }
+  g29_neg "29v: altering the r<N> prefix fails the group" " p_r " ct \
+    'Exploratory charter r<N>: <the charter' 'Exploratory Charter r<N>: <the charter'
+  g29_neg "29v2: altering the u<k> prefix fails the group" " p_u " ct \
+    'Exploratory charter u<k>: <the charter' 'Exploratory charter U<k>: <the charter'
+  g29_neg "29v3: altering the HANDED BACK: prefix fails the group" " p_hb " ct \
+    'HANDED BACK: <r<N> | u<k> | -> <what' 'HANDED-BACK: <r<N> | u<k> | -> <what'
+  g29_neg "29v4: altering the Visual pass prefix fails the group" " p_vp " ct \
+    'Visual pass <r<N> | u<k>>:' 'Visual Pass <r<N> | u<k>>:'
+  g29_neg "29v5: altering the coverage line fails the group" " p_cov " ct \
+    'Exploratory coverage: <p> performed' 'Exploratory coverage: <p> done'
+  g29_neg "29v6: altering the skip prefix fails the group" " p_skip " ct \
+    'Exploratory testing skipped: <why' 'Exploratory testing skipped - <why'
+  g29_neg "29w: putting the complete call ahead of the check in Step 8 fails the group" " g_order " wf \
+    '## Step 8: Complete the Task' '## Step 8: Complete the Task
+
+Call `PATCH /api/tasks/:id/complete` with ALL required fields:'
+  g29_neg "29w2: dropping send-the-strings-you-checked fails the group" " g_same " wf \
+    '**Make the call only after `exploratory_outcomes_ok: true`, and send the strings you checked:**' '**Make the call.**'
+  g29_neg "29w3: dropping the hard-gate box fails the group" " b_box " ct \
+    '- [ ] **Every Step 6.5 / Phase 3.5 charter has a recorded outcome and an owner.**' '- [ ] **Charters are mentioned.**'
+  g29_neg "29w4: dropping the check from Phase 3.5 fails the group" " m_check_sw " sw \
+    'then check them before the complete call with `exploratory_outcomes_ok`' 'then move on'
+  g29_neg "29w5: dropping the fence write from Phase 3.5 fails the group" " d_write_sw " sw \
+    "When you sent a path, write that fence's parsed object to it (D248)" 'When you sent a path, read the fence'
+  g29_neg "29w6: putting 'record nothing extra' back in the Step 6.5 fallback fails the group" " s_old_wf " wf \
+    'record only the one `Exploratory testing skipped: <reason>` line `stride-completing-tasks` asks for' 'record nothing extra in the completion payload'
+  g29_neg "29w7: dropping the Step 9 repeat fails the group" " h_repeat " wf \
+    '**Repeat every `HANDED BACK:` line this completion wrote to the user**' '**Mention hand-backs if convenient**'
+  g29_neg "29w8: editing one byte of the checker fails the group" " k_sum " wf \
+    'test("^[WDG][0-9]+$")' 'test("^[WD][0-9]+$")'
+  g29_neg "29w9: stating the skip bullet twice fails the group (exactly once)" " s_bullet " ct \
+    '- **When Step 6.5 did not fire**' '- **When Step 6.5 did not fire** — plugin unavailable, no authorized-and-non-production affirmative, no reach or `ALLOWED_HOSTS` established, or a budget too small for one charter — and the task carried `manual_tests` or `edge_cases`, write one `Exploratory testing skipped: <reason>` line and no charter or coverage line.
+- **When Step 6.5 did not fire**'
+  g29_neg "29w10: dropping the one-coverage-line rule fails the group" " c_one " ct \
+    '**One coverage line, in `completion_summary`**, counting the outcome lines exactly.' '**Coverage**, if you like.'
+  g29_neg "29w11: dropping redacted-never-dropped fails the group" " r_rule " ct \
+    '**A line whose charter would name a credential, token or internal hostname is redacted, never dropped**' '**Lines may be left out**'
+  g29_neg "29w12: dropping the pathless not-run line from Step 6.5 fails the group" " x_wf " wf \
+    'in place of the checker'"'"'s `true` record `exploratory_outcomes_ok: not run — no report path was sent`' 'record nothing'
+  g29_neg "29w13: dropping the no-visual-pass rule fails the group" " v_rule " ct \
+    'No stride-codex step runs a visual pass yet, so never write a `Visual pass` line here' 'Write a Visual pass line when you like'
+  g29_neg "29w14: dropping the flowchart check line fails the group" " f_wf_chart " wf \
+    'exploratory_outcomes_ok must print true first' 'carry on'
+  g29_neg "29w15: dropping the file-editing-tool write from Step 8 fails the group" " g_tool " wf \
+    '**write `.stride/.outcomes-<IDENTIFIER>.json` with your file-editing tool**' '**write the outcomes file**'
+  g29_neg "29w16: pasting the notes into a shell literal in Step 8 fails the group" " g_paste " wf \
+    "  exploratory_outcomes_ok \"\$OUT\" '<last returned report path, one per charter>'" "  jq -n --arg notes '<completion_notes>' '{}' > \"\$OUT\"
+  exploratory_outcomes_ok \"\$OUT\" '<last returned report path, one per charter>'"
+  g29_neg "29w17: dropping the pre-write symlink guard from Step 8 fails the group" " g_prewrite " wf \
+    'a symlink at either means do not write and do not submit' 'write it anyway'
+  assert_eq "29x: the break-it cases left the real skill files untouched" "$G29_SUM_BEFORE" \
+    "$(cksum < "$G29_WF") $(cksum < "$G29_SW") $(cksum < "$G29_CT")"
+else
+  echo "  SKIP: Test Group 29 (a skill or the rationale doc is missing)"
+fi
+
 echo ""
 echo "============================================================"
 echo "  Passed: $PASS"

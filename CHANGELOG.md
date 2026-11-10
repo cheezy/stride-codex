@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — Every Step 6.5 charter leaves an outcome line and an owner, and `exploratory_outcomes_ok` checks the record before completion (W2681)
+
+Ports stride's W2585 (commit `fe5de2e`) into `stride-completing-tasks`, `stride-workflow` Step 6.5, Step 8 and Step 9, and the `stride-subagent-workflow` Phase 3.5 twin. Where `stride-exploratory-testing`'s `docs/porting-g503.md` and that commit differ, the commit was followed.
+
+- **Lines.** `stride-completing-tasks` gains § Outcome Lines, Coverage and Hand-Backs, with stride's six line formats byte for byte (only the skip line's placeholder says Step 6.5): one `Exploratory charter r<N>:` line per charter in `completion_notes`, its `stop_reason`, probe count and surfaces copied from the report and its outcome never above what the report supports; `u<k>` keys for a charter built but never run; one `Exploratory coverage:` line in `completion_summary`; and an owner for every charter not performed, a follow-up identifier or a `HANDED BACK:` line. A line whose charter would name a credential is redacted, never dropped.
+- **Checker.** `exploratory_outcomes_ok`, stride's function byte for byte, is defined in Step 6.5 after step 3. It reads only the outcomes file and the report paths the workflow sent, keys lines to reports by `r<N>`, and prints only `true` or `false`.
+- **Step 8** runs it before the complete call: the agent writes the exact notes and summary into `.stride/.outcomes-<IDENTIFIER>.json` with its file-editing tool, never a shell literal (a quote in restated charter text would otherwise end the literal and run what follows), the block runs the checker on it, and submits only on `true`, with the curl reading the two strings back from that file (`--slurpfile oc`). The artifact cleanup removes the file.
+- **Self-check.** A new box in the completion hard gate: `exploratory_outcomes_ok` must have printed `true`; on `false`, do not submit. A charter not performed never fails completion; the gate needs a record and an owner, not coverage.
+- **Skipped gate.** A task carrying `manual_tests` or `edge_cases` whose Step 6.5 did not fire records one `Exploratory testing skipped: <reason>` line, replacing "record nothing extra" in the two fallback statements that had it (`stride-completing-tasks` and Step 6.5) and added to the Phase 3.5 skip rule and both graceful-skip paragraphs. A task with neither records nothing.
+- **Fence written to the path (D248).** On `report: NOT WRITTEN`, the parsed fence object is written to the path that was sent, with the file-editing tool and never a shell `echo`, so the checker and Step 6.6 read one shape. Step 6.6 and Phase 3.6 now skip only a session that left no file at the path.
+- **Step 9** repeats every `HANDED BACK:` line to the user.
+- **Codex only.** Codex builds the completion body inline, so the outcomes file stands in for stride's payload file. A dispatch that left nothing at its path is keyed `u<k>`, `crashed`, because this port's report-path block reuses a free number. A dispatch sent no path gets no charter line and records `exploratory_outcomes_ok: not run — no report path was sent`. This port has no visual pass yet, so the `Visual pass` format is documented and never written.
+- **Not applicable here.** The task-runner `exploratory_env` `observation` and `constraints` lines, the 1,800-byte dispatch-object cap, the runner record's `summary` clause, and the two Step 8 sentences stride dropped to stay inside its 100,000-byte budget: stride-codex has no task-runner, no dispatcher mode and no byte budget.
+- **Porting-doc differences.** `docs/porting-g503.md` leaves out the self-check box, the D248 fence write and Step 5.6's narrowed skip, the Step 8 repeat, the `u<k>` keys and the visual-pass line. It says the checker "gates completion"; in the commit it is a self-check the agent runs, and no hook or server enforces it.
+- `docs/orchestrator-rationale.md` gains § Why Every Charter Needs a Record and an Owner. `README.md` and `AGENTS.md` describe the record and the check.
+- Hook-suite **Group 29** pins each line format, the checker's bytes, the Step 8 order and each rule exactly once, compares the formats and the function with stride's when that repo is present, and runs the checker on fixture records. It proves it can fail by checking mutated copies, among them altering one prefix.
+
+Not verified in a live Codex CLI run, since none was available here. No server, API or task-field change.
+
 ### Changed — Step 0 reads a confirmed `.exploratory.md` (or asks) for a signed-in probe surface, and Step 6.5 refuses to count a signed-out session on an auth-gated target (W2680)
 
 Ports stride's W2583 (commit `bf66722`) into `stride-workflow` Step 0 and Step 6.5 and its `stride-subagent-workflow` Phase 3.5 twin, so the 0.4.0 explorer's `PROBE_HARNESS` surface is reachable on Codex. Where `stride-exploratory-testing`'s `docs/porting-g503.md` and that commit differ, the commit was followed.

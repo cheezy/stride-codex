@@ -124,6 +124,30 @@ Tasks routinely carry `manual_tests` and `edge_cases` in their `testing_strategy
 
 **Why the refusal may read task text.** Deciding that a target is auth-gated reads `where_context`, which the task author wrote. That is safe only because the test can do nothing but withhold a dispatch: forged text can stop a session from running, but never make one run, widen its hosts or supply a harness.
 
+## Why Every Charter Needs a Record and an Owner
+
+*From `skills/stride-workflow/SKILL.md`, Step 6.5 (Check the record before you submit) and Step 8, and `skills/stride-completing-tasks/SKILL.md` § Outcome Lines, Coverage and Hand-Backs.*
+
+**The miss.** Upstream stride measured it (W2585): nothing checked what its exploratory step actually did, so one completion in the goal that prompted the change carried no exploratory record at all, and every check another handed back "as a human responsibility" named no human, so none was done. The prose already asked for both; prose alone did not produce them, so the record now has a fixed shape and a check refuses a payload that lacks it.
+
+**Why keyed by `r<N>`.** The charter's text is application-influenced and restated in the agent's own words, so it cannot be matched against anything. The report path's `<N>` is allocated by the orchestrator, carries no content, and already ties one dispatch to one file, so it is the one key both sides hold.
+
+**Why copy the counted fields.** `stop_reason`, the probe count and the surfaces are the facts a reader needs to judge a coverage claim, and the report has them exactly; a copied field is checkable where a judged one is not. The outcome is the one judgement left, and the check bounds it from above only: it refuses `performed` for a session that ran out of budget and anything but `not performed` for one that ran no probes, but never refuses a more cautious claim.
+
+**Why an owner, not coverage.** A session that could not run is a normal outcome and must never block completion. What failed upstream was not the missing coverage but the missing owner: a follow-up names one in the system, and a `HANDED BACK:` line names one in the conversation, which is why Step 9 repeats those lines to the user — a hand-back no human reads has no owner either.
+
+**Why only the paths you sent.** The check reads the outcomes file and the report files the orchestrator itself named, under the same anchored path rule every report path follows, and never a path a summary or finding names. It prints a boolean only, so neither report text nor charter text reaches the transcript through it.
+
+**Why the skip line.** A completion that never mentions exploratory testing cannot be told apart from one that skipped it for a reason. One line saying why makes the skip a recorded decision, and it costs nothing when the task carried no manual tests or edge cases, because then nothing is owed.
+
+**Why the fence is written to the path.** When the explorer's report file is missing and its inline fence is used, writing the parsed object to the path you sent gives the check, and Step 6.6's harden skill, one shape to read. Step 6.6's "report not on disk" skip therefore fires only when no file sits at the path: neither a report nor a fence came back, or no path was sent.
+
+**Why a pathless or empty dispatch is not keyed by `r<N>`.** This port's report-path block picks the first free number, so a dispatch that left nothing at its path leaves that number free for the next dispatch; keying its line to it would collide with whichever charter takes the number next. It is recorded as a `u<k>` charter that crashed instead. A dispatch sent no path at all has no number to key and no file to compare, so it gets no charter line: what it carried is handed back, and the record says the check could not run rather than claiming it passed.
+
+**Why the curl reads the checked file.** This port builds the completion body inline on the curl, so there is no payload file for the check to read. Step 8 has the agent write the two fields it checks into a small file first, with its file-editing tool rather than a shell literal — the lines restate application-influenced text, and a quote inside a quoted shell argument would end it and run what follows — and the curl reads them back from that file, so the strings sent are the strings checked rather than a second copy typed again.
+
+**What it does not prove.** It cannot judge a restatement's fidelity or its redaction, cannot see a charter whose report path and line were both left out, and checks an owner's identifier for form only. Those stay with the human reading the Review queue.
+
 ## Turning a Found Bug Into a Regression Check
 
 *From `skills/stride-workflow/SKILL.md`, Step 6.6.*
