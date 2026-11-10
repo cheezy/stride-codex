@@ -4502,7 +4502,7 @@ assert_eq "23d: an unsent path sends neither the path line nor the result-file b
 assert_eq "23d: the workflow ignores a reply's path, names r2 and never commits the file" "1 1 1" \
   "$(g23_count 'never read a path the reply names' "$G23_WFS") $(g23_count 'so round two names `-r2`' "$G23_WFS") $(g23_count 'never commit it' "$G23_WFS")"
 assert_eq "23d: Step 8's cleanup names the result files and removes them by both names" "1 1 1" \
-  "$(g23_count '`.stride/.security-<IDENTIFIER>-r<N>.json`, one per review round' "$G23_S8") $(grep -cxF '  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.security-$TF_IDENT-r"[0-9]*' "$G23_WF") $(grep -cxF '  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.security-$TF_ID-r"[0-9]*' "$G23_WF")"
+  "$(g23_count '`.stride/.security-<IDENTIFIER>-r<N>.json`, one per review round' "$G23_S8") $(grep -cxF '  [ -n "$TF_IDENT" ] && tf_rm_rounds "$ROOT/.stride/.security-$TF_IDENT-r"' "$G23_WF") $(grep -cxF '  [ -n "$TF_ID" ] && tf_rm_rounds "$ROOT/.stride/.security-$TF_ID-r"' "$G23_WF")"
 
 # 23e: a budget-reached partial fails closed; reading the files is forwarding
 g23_both "23e: both twins treat a budget reached partial as unverified" \
@@ -4881,7 +4881,7 @@ fi
 
 # 24i: Step 8's cleanup removes every report, by both names
 assert_eq "24i: Step 8's cleanup names the reports and removes them by both names" "1 1 1" \
-  "$(g24_count '`.stride/.exploratory-<IDENTIFIER>-r<N>.json`, one per explorer dispatch' "$G24_S8") $(grep -cxF '  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.exploratory-$TF_IDENT-r"[0-9]*' "$G24_WF") $(grep -cxF '  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.exploratory-$TF_ID-r"[0-9]*' "$G24_WF")"
+  "$(g24_count '`.stride/.exploratory-<IDENTIFIER>-r<N>.json`, one per explorer dispatch' "$G24_S8") $(grep -cxF '  [ -n "$TF_IDENT" ] && tf_rm_rounds "$ROOT/.stride/.exploratory-$TF_IDENT-r"' "$G24_WF") $(grep -cxF '  [ -n "$TF_ID" ] && tf_rm_rounds "$ROOT/.stride/.exploratory-$TF_ID-r"' "$G24_WF")"
 if command -v jq >/dev/null 2>&1; then
   G24_CB=$(printf '%s\n' "$G24_S8" | awk '/^\*\*Artifact cleanup/{f=1} f&&/^```bash/{b=1;next} b&&/^```/{exit} b')
   g24_cb() {
@@ -7123,8 +7123,8 @@ g30_check() {
   g30_once h_s9 $'**Step 6.5\'s goal-scope pass is not this lifecycle.**' "$s9"
   g30_once h_push9 'it never pushes and never runs `## after_goal`' "$s9"
   # c_: Step 8 removes the pass's files
-  g30_once c_id '[ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.goal-scope-$TF_IDENT-"*.json' "$s8"
-  g30_once c_num '[ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.goal-scope-$TF_ID-"*.json' "$s8"
+  g30_once c_id '[ -n "$TF_IDENT" ] && tf_rm_goal_scope "$ROOT/.stride/.goal-scope-$TF_IDENT-"' "$s8"
+  g30_once c_num '[ -n "$TF_ID" ] && tf_rm_goal_scope "$ROOT/.stride/.goal-scope-$TF_ID-"' "$s8"
   # fl_: flowcharts and quick references
   g30_lines fl_wf_main 1 $'Goal\'s last open child? --> one goal-scope pass' "$wf"
   g30_lines fl_wf_ref 1 $'Goal\'s last open child → one goal-scope pass' "$wf"
@@ -7733,7 +7733,7 @@ g32_check() {
   g32_once o_out 'OUT="$ROOT/.stride/.outcomes-$OC_STEM.json"' "$ob"
   g32_once o_prose 'named by the same stem as the task file: the identifier when it is a plain 1-64 character `[A-Za-z0-9_-]` token, else the numeric id' "$s8"
   # c_: the cleanup paragraph names the files its globs remove
-  g32_once c_prose $'and Step 6.5\'s goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-*.json`)' "$s8"
+  g32_once c_prose $'and Step 6.5\'s goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-tree.json` and `.stride/.goal-scope-<IDENTIFIER>-<id>.json`)' "$s8"
   g32_once c_sib '`.stride/.goal-scope-<STEM>-<id>.json`, `<STEM>` being the trigger block'"'"'s' "$gs"
   # p_: Step 6.5 and Phase 3.5 state the same rules, once each in their own section
   for p in \
@@ -7979,7 +7979,7 @@ if [ -f "$G32_WF" ] && [ -f "$G32_SW" ] && [ -f "$G32_CL" ]; then
     g32_neg "32n8: dropping the stop-at-the-nearest rule from Step 6.5 fails the group" " p_parent_wf " wf \
       $'so a parent directory\'s `.stride_auth.md` is never read' 'so any directory may be read'
     g32_neg "32n9: dropping the goal-scope files from the cleanup prose fails the group" " c_prose " wf \
-      $', and Step 6.5\'s goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-*.json`)' ''
+      $', and Step 6.5\'s goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-tree.json` and `.stride/.goal-scope-<IDENTIFIER>-<id>.json`)' ''
     rm -rf "$G32_TMP"
   else
     echo "  SKIP: 32d-32n (jq not installed)"
@@ -9114,6 +9114,253 @@ $G36_NS" "Did it."
     "$(cksum < "$G36_WF") $(cksum < "$G36_CT") $(cksum < "$G36_RAT") $(cksum < "$G36_CL")"
 else
   echo "  SKIP: Test Group 36 (a skill, the rationale or the changelog is missing)"
+fi
+
+# ============================================================================
+# Test Group 37: D409 -- Step 8's cleanup removes only this task's own files,
+# and the OC_IDENT/OC_ID sanitisers are pinned
+# ============================================================================
+# Step 8's cleanup removed the security and exploratory reports with
+# `-r"[0-9]*` and the goal-scope files with `-"*.json`, so for stem W47 it also
+# removed W47-r1's reports (.security-W47-r1-r1.json) and W47-b's goal-scope
+# files: in a shared checkout a parallel task lost its review and exploratory
+# record with no error. 37a-37f run the cleanup block, extracted from the
+# skill, on a .stride/ seeded with every file shape for the stems W47, W47-r1,
+# W47-b, W47-1, 47, 47-r1 and 470, and check both directions: this stem's own files,
+# r10 and the .json.tmp leftover included, all go, and every other stem's
+# files all stay. 37g-37h run the stem sanitisers from the completion block
+# in stride-completing-tasks (and its twin in stride-workflow) on hostile
+# values, and 37i runs the cleanup block's own sanitisers, which gained the
+# same 64-character and 20-digit limits; every case that expects a blank has
+# a twin that expects the value. 37n1-37n18 break a copy of a block and show
+# the case that catches it.
+# 37p pins the prose and this changelog entry; 37z shows the real files were
+# never written. The task's named unit tests keep their testing_strategy
+# names, prefixed with their Group 37 id.
+# What this does NOT prove: that an agent fills the placeholders from the
+# claim response in a live Codex CLI session (no Codex CLI here).
+echo ""
+echo "=== Test Group 37: Step 8 cleanup matches only this stem's file shapes; the OC sanitisers blank hostile stems (D409) ==="
+
+G37_WF="$PORT_ROOT/skills/stride-workflow/SKILL.md"
+G37_CT="$PORT_ROOT/skills/stride-completing-tasks/SKILL.md"
+G37_CL="$PORT_ROOT/CHANGELOG.md"
+G37_P_WF='**Each of those names is matched by its exact shape, never by a trailing wildcard:**'
+if [ -f "$G37_WF" ] && [ -f "$G37_CT" ] && [ -f "$G37_CL" ] && command -v jq >/dev/null 2>&1; then
+  G37_SUM_BEFORE="$(cksum < "$G37_WF") $(cksum < "$G37_CT") $(cksum < "$G37_CL")"
+  G37_S8=$(awk '/^## Step 8:/{f=1} /^## Step 9:/{f=0} f' "$G37_WF")
+  G37_CB=$(printf '%s\n' "$G37_S8" | awk '/^\*\*Artifact cleanup/{f=1} f&&/^```bash/{b=1;next} b&&/^```/{exit} b')
+  G37_STEMS="W47 W47-r1 W47-b W47-1 47 47-r1 470"
+  G37_D="$TMPDIR_TEST/g37"
+  # g37_fill <block> <ident> <id>: the block with its two placeholder lines filled
+  g37_fill() {
+    local _i _n
+    _i=$(jq -rn --arg v "$2" '$v | @sh'); _n=$(jq -rn --arg v "$3" '$v | @sh')
+    printf '%s\n' "$1" | awk -v i="$_i" -v n="$_n" '
+      /^TF_IDENT=\047<identifier>\047$/ {print "TF_IDENT=" i; next}
+      /^TF_ID=\047<numeric id>\047$/ {print "TF_ID=" n; next} {print}'
+  }
+  # g37_names <stem>: every file shape the workflow writes under that stem
+  g37_names() {
+    printf '%s\n' ".task-$1.json" ".review-rounds-$1.json" ".review-fixbase-$1.txt" \
+      ".security-$1-r1.json" ".security-$1-r2.json" ".security-$1-r10.json" ".security-$1-r2.json.tmp" \
+      ".exploratory-$1-r1.json" ".exploratory-$1-r2.json" ".exploratory-$1-r10.json" \
+      ".outcomes-$1.json" ".goal-scope-$1-tree.json" ".goal-scope-$1-8190.json" "attachments/$1"
+  }
+  G37_ALL=$(g37_names W47 | wc -l | tr -d ' ')
+  # g37_run <block> <ident> <id>: seed a fresh .stride/ for every stem, run the block
+  g37_run() {
+    local s f
+    rm -rf "$G37_D"; mkdir -p "$G37_D/.stride/attachments"; : > "$G37_D/.stride.md"
+    for s in $G37_STEMS; do
+      for f in $(g37_names "$s"); do
+        case "$f" in attachments/*) mkdir -p "$G37_D/.stride/$f"; : > "$G37_D/.stride/$f/a.png" ;; *) : > "$G37_D/.stride/$f" ;; esac
+      done
+    done
+    ( cd "$G37_D" && env -u CLAUDE_PROJECT_DIR CODEX_PROJECT_DIR="$G37_D" bash -c "$(g37_fill "$1" "$2" "$3")" ) >/dev/null 2>&1
+  }
+  # g37_left <stem>: how many of that stem's files are still present
+  g37_left() {
+    local f c=0
+    for f in $(g37_names "$1"); do [ -e "$G37_D/.stride/$f" ] && c=$((c + 1)); done
+    echo "$c"
+  }
+  # g37_gone <file>: record id $2 unless the file is absent
+  g37_gone() { [ -e "$G37_D/.stride/$1" ] && G37_FAILS="$G37_FAILS $2"; return 0; }
+  # g37_keep <id> <stem...>: record id unless every named stem kept all its files
+  g37_keep() {
+    local id=$1 s; shift
+    for s in "$@"; do [ "$(g37_left "$s")" = "$G37_ALL" ] || G37_FAILS="$G37_FAILS $id"; done
+  }
+  # g37_check <cleanup block>: OK, or the sorted ids of the failed cases
+  g37_check() {
+    local b="$1"
+    G37_FAILS=""
+    [ "$(printf '%s\n' "$b" | grep -c -e "^TF_IDENT='<identifier>'\$" -e "^TF_ID='<numeric id>'\$")" = "2" ] || G37_FAILS="$G37_FAILS scope"
+    # a_: stem W47 by identifier, with an id that owns nothing
+    g37_run "$b" W47 9
+    [ "$(g37_left W47)" = "0" ] || G37_FAILS="$G37_FAILS a_own"
+    g37_gone .security-W47-r10.json a_r10; g37_gone .exploratory-W47-r10.json a_r10
+    g37_gone .security-W47-r2.json.tmp a_tmp
+    g37_gone .goal-scope-W47-tree.json a_gs; g37_gone .goal-scope-W47-8190.json a_gs
+    g37_keep b_r1 W47-r1
+    g37_keep b_b W47-b
+    g37_keep b_1 W47-1
+    g37_keep b_num 47 47-r1 470
+    # c_: a numeric id alone
+    g37_run "$b" '' 47
+    [ "$(g37_left 47)" = "0" ] || G37_FAILS="$G37_FAILS c_own"
+    g37_keep c_long 470
+    g37_keep c_r1 47-r1
+    g37_keep c_ident W47 W47-r1 W47-b W47-1
+    # d_: an empty stem removes nothing
+    g37_run "$b" '' ''
+    g37_keep d_empty $G37_STEMS
+    # e_: the longer stem removes its own files and leaves the shorter one's
+    g37_run "$b" W47-r1 470
+    [ "$(g37_left W47-r1)$(g37_left 470)" = "00" ] || G37_FAILS="$G37_FAILS e_own"
+    g37_keep e_short W47 W47-b W47-1 47 47-r1
+    # f_: an identifier or id that is not a plain token removes nothing
+    for v in '*' 'W47*' '../W47' 'W47 W47-b' '?47' '../attachments/W47-b'; do
+      g37_run "$b" "$v" '../attachments/470'
+      g37_keep f_hostile $G37_STEMS
+    done
+    if [ -z "$G37_FAILS" ]; then echo OK; else printf '%s\n' $G37_FAILS | sort -u | tr '\n' ' ' | sed 's/ $//'; fi
+  }
+  G37_REAL=$(g37_check "$G37_CB")
+  # g37_ok <label> <prefix...>: no failing id on the real block starts with a prefix
+  g37_ok() {
+    local label=$1 bad="" id p; shift
+    for id in $G37_REAL; do
+      for p in "$@" scope; do case "$id" in "$p"*) bad="$bad $id" ;; esac; done
+    done
+    assert_eq "$label" "" "$bad"
+  }
+  assert_eq "37a: the cleanup block's two placeholders are where g37_fill expects them" "2" \
+    "$(printf '%s\n' "$G37_CB" | grep -c -e "^TF_IDENT='<identifier>'\$" -e "^TF_ID='<numeric id>'\$")"
+  g37_ok "37b: Group 37: Step 8 cleanup for stem W47 still removes W47's own r1, r2 and r10 security/exploratory reports and its goal-scope files" a_
+  g37_ok "37c: Group 37: Step 8 cleanup for stem W47 leaves .stride/ files of stem W47-r1 and W47-b in place" b_
+  g37_ok "37d: Group 37: Step 8 cleanup with a numeric TF_ID removes only that id's files, never a longer id sharing its prefix" c_
+  g37_ok "37e: Group 37: Step 8 cleanup with empty TF_IDENT and TF_ID removes nothing" d_
+  g37_ok "37f: the longer stem W47-r1 removes its own files and leaves W47's; a hostile stem removes nothing" e_ f_
+
+  # --- 37g-37h: the stem sanitisers, extracted and run ---
+  G37_OB=$(awk "/^OC_IDENT='<identifier>'\$/{f=1} f; f&&/^OC_STEM=/{exit}" "$G37_CT")
+  G37_OBW=$(awk "/^OC_IDENT='<identifier>'\$/{f=1} f; f&&/^OC_STEM=/{exit}" "$G37_WF")
+  # g37_stem <block> <ident> <id>: the OC_STEM the block resolves, in brackets
+  g37_stem() {
+    local _i _n
+    _i=$(jq -rn --arg v "$2" '$v | @sh'); _n=$(jq -rn --arg v "$3" '$v | @sh')
+    printf '[%s]' "$(printf '%s\nprintf %%s "$OC_STEM"\n' "$1" | awk -v i="$_i" -v n="$_n" '
+      /^OC_IDENT=\047<identifier>\047$/ {print "OC_IDENT=" i; next}
+      /^OC_ID=\047<numeric id>\047$/ {print "OC_ID=" n; next} {print}' | bash 2>/dev/null)"
+  }
+  G37_A64=$(printf 'a%.0s' $(seq 1 64)); G37_D20=$(printf '1%.0s' $(seq 1 20))
+  # g37_ocheck <block>: OK, or the sorted ids of the failed cases
+  g37_ocheck() {
+    local b="$1" bad=""
+    [ "$(printf '%s\n' "$b" | grep -c -e "^OC_IDENT='<identifier>'\$" -e "^OC_ID='<numeric id>'\$" -e '^OC_STEM=')" = "3" ] || bad="$bad scope"
+    [ "$(g37_stem "$b" 'W47/x' '')" = "[]" ] || bad="$bad o_slash"
+    [ "$(g37_stem "$b" '..' '')" = "[]" ] || bad="$bad o_dotdot"
+    [ "$(g37_stem "$b" 'W47 x' '')" = "[]" ] || bad="$bad o_space"
+    [ "$(g37_stem "$b" "${G37_A64}a" '')" = "[]" ] || bad="$bad o_long"
+    [ "$(g37_stem "$b" "$G37_A64" '')" = "[$G37_A64]" ] || bad="$bad o_64"
+    [ "$(g37_stem "$b" 'W47-b_1' '9')" = "[W47-b_1]" ] || bad="$bad o_plain"
+    [ "$(g37_stem "$b" '../x' '9')" = "[9]" ] || bad="$bad o_fallback"
+    [ "$(g37_stem "$b" '' '9x')" = "[]" ] || bad="$bad o_iddigit"
+    [ "$(g37_stem "$b" '' "${G37_D20}1")" = "[]" ] || bad="$bad o_idlong"
+    [ "$(g37_stem "$b" '' "$G37_D20")" = "[$G37_D20]" ] || bad="$bad o_id20"
+    echo "${bad:-OK}"
+  }
+  assert_eq "37g: Group 37: OC_IDENT sanitiser blanks a value with a slash, a dot-dot, a space or over 64 chars; OC_ID blanks non-digits and over 20 digits" \
+    "OK" "$(g37_ocheck "$G37_OB")"
+  assert_eq "37h: the stride-workflow twin of the outcomes block blanks the same values" "OK" "$(g37_ocheck "$G37_OBW")"
+  # 37i: the cleanup block's own sanitisers, everything above its ROOT= line
+  G37_TB=$(printf '%s\n' "$G37_CB" | awk '/^ROOT=/{exit} {print}')
+  # g37_tstem <sanitiser lines> <ident> <id>: [TF_IDENT|TF_ID] after the sanitisers
+  g37_tstem() {
+    local _i _n
+    _i=$(jq -rn --arg v "$2" '$v | @sh'); _n=$(jq -rn --arg v "$3" '$v | @sh')
+    printf '[%s]' "$(printf '%s\nprintf %%s "$TF_IDENT|$TF_ID"\n' "$1" | awk -v i="$_i" -v n="$_n" '
+      /^TF_IDENT=\047<identifier>\047$/ {print "TF_IDENT=" i; next}
+      /^TF_ID=\047<numeric id>\047$/ {print "TF_ID=" n; next} {print}' | bash 2>/dev/null)"
+  }
+  # g37_tcheck <sanitiser lines>: OK, or the ids of the failed cases
+  g37_tcheck() {
+    local b="$1" bad=""
+    [ "$(printf '%s\n' "$b" | grep -c -e "^TF_IDENT='<identifier>'\$" -e "^TF_ID='<numeric id>'\$")" = "2" ] || bad="$bad scope"
+    [ "$(g37_tstem "$b" "${G37_A64}a" '')" = "[|]" ] || bad="$bad t_long"
+    [ "$(g37_tstem "$b" "$G37_A64" '')" = "[$G37_A64|]" ] || bad="$bad t_64"
+    [ "$(g37_tstem "$b" '' "${G37_D20}1")" = "[|]" ] || bad="$bad t_idlong"
+    [ "$(g37_tstem "$b" '' "$G37_D20")" = "[|$G37_D20]" ] || bad="$bad t_id20"
+    [ "$(g37_tstem "$b" 'W47/x' '9x')" = "[|]" ] || bad="$bad t_chars"
+    [ "$(g37_tstem "$b" 'W47-b_1' '9')" = "[W47-b_1|9]" ] || bad="$bad t_plain"
+    echo "${bad:-OK}"
+  }
+  assert_eq "37i: the cleanup block blanks an identifier over 64 characters or an id over 20 digits, as the outcomes block does, and keeps 64 and 20" \
+    "OK" "$(g37_tcheck "$G37_TB")"
+
+  # --- 37n1-37n18: break a copy of a block, see the case that catches it ---
+  # g37_neg <label> <id> <block> <old> <new>: replace the first <old> in a copy
+  g37_neg() {
+    local m
+    case "$3" in
+      ( *"$4"* ) m=${3/"$4"/"$5"}
+        case "$2" in
+          ( o_* ) assert_contains "$1" " $2 " " $(g37_ocheck "$m") " ;;
+          ( t_* ) assert_contains "$1" " $2 " " $(g37_tcheck "$m") " ;;
+          ( * ) assert_contains "$1" " $2 " " $(g37_check "$m") " ;;
+        esac ;;
+      ( * ) assert_eq "$1 (mutation target present)" "present" "MISSING" ;;
+    esac
+  }
+  g37_neg "37n1: Group 37: break-it - restoring the old trailing-star glob makes the W47-r1 survival test fail" b_r1 "$G37_CB" \
+    '  [ -n "$TF_IDENT" ] && tf_rm_rounds "$ROOT/.stride/.security-$TF_IDENT-r"' '  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.security-$TF_IDENT-r"[0-9]*'
+  g37_neg "37n2: break-it - restoring the old exploratory glob fails 37c" b_r1 "$G37_CB" \
+    '  [ -n "$TF_IDENT" ] && tf_rm_rounds "$ROOT/.stride/.exploratory-$TF_IDENT-r"' '  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.exploratory-$TF_IDENT-r"[0-9]*'
+  g37_neg "37n3: break-it - restoring the old goal-scope glob fails the W47-b survival case" b_b "$G37_CB" \
+    '  [ -n "$TF_IDENT" ] && tf_rm_goal_scope "$ROOT/.stride/.goal-scope-$TF_IDENT-"' '  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.goal-scope-$TF_IDENT-"*.json'
+  g37_neg "37n4: break-it - restoring the old numeric security glob fails 37d" c_r1 "$G37_CB" \
+    '  [ -n "$TF_ID" ] && tf_rm_rounds "$ROOT/.stride/.security-$TF_ID-r"' '  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.security-$TF_ID-r"[0-9]*'
+  g37_neg "37n5: break-it - restoring the old numeric goal-scope glob fails 37d" c_r1 "$G37_CB" \
+    '  [ -n "$TF_ID" ] && tf_rm_goal_scope "$ROOT/.stride/.goal-scope-$TF_ID-"' '  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.goal-scope-$TF_ID-"*.json'
+  g37_neg "37n6: break-it - dropping the round filter fails 37c" b_r1 "$G37_CB" \
+    "      case \"\$tf_n\" in ''|*[!0-9]*) ;; *) rm -f \"\$tf_f\" ;; esac" '      rm -f "$tf_f"'
+  g37_neg "37n7: break-it - dropping the sibling-id filter fails the W47-1 survival case" b_1 "$G37_CB" \
+    $'tf_n=${tf_n%.json}\n      case "$tf_n" in \'\'|*[!0-9]*) ;; *) rm -f "$tf_f" ;; esac' $'tf_n=${tf_n%.json}\n      rm -f "$tf_f"'
+  g37_neg "37n8: break-it - deleting less (one-digit rounds only) fails the r10 case" a_r10 "$G37_CB" \
+    'for tf_f in "$1"[0-9]*.*; do' 'for tf_f in "$1"[0-9].*; do'
+  g37_neg "37n9: break-it - deleting less (no .tmp leftover) fails the leftover case" a_tmp "$G37_CB" \
+    'tf_n=${tf_f#"$1"}; tf_n=${tf_n%%.*}' 'tf_n=${tf_f#"$1"}; tf_n=${tf_n%.json}'
+  g37_neg "37n10: break-it - dropping the tree file fails the goal-scope case" a_gs "$G37_CB" \
+    '    rm -f "${1}tree.json"' '    :'
+  g37_neg "37n11: break-it - dropping the empty-stem guard on the attachments line fails 37e" d_empty "$G37_CB" \
+    '  [ -n "$TF_IDENT" ] && [ ! -L "$ROOT/.stride/attachments" ]' '  [ ! -L "$ROOT/.stride/attachments" ]'
+  g37_neg "37n12: break-it - dropping the TF_IDENT allow-list fails the hostile-stem case" f_hostile "$G37_CB" \
+    'case "$TF_IDENT" in *[!A-Za-z0-9_-]*) TF_IDENT="" ;; esac' ':'
+  g37_neg "37n13: break-it - dropping the OC_IDENT allow-list fails the slash case" o_slash "$G37_OB" \
+    "case \"\$OC_IDENT\" in ''|*[!A-Za-z0-9_-]*) OC_IDENT='' ;; esac" ':'
+  g37_neg "37n14: break-it - dropping the OC_IDENT length cap fails the 65-character case" o_long "$G37_OB" \
+    "[ \"\${#OC_IDENT}\" -le 64 ] || OC_IDENT=''" ':'
+  g37_neg "37n15: break-it - dropping the OC_ID length cap fails the 21-digit case" o_idlong "$G37_OB" \
+    "[ \"\${#OC_ID}\" -le 20 ] || OC_ID=''" ':'
+  g37_neg "37n16: break-it - dropping the OC_ID allow-list fails the non-digit case" o_iddigit "$G37_OB" \
+    "case \"\$OC_ID\" in ''|*[!0-9]*) OC_ID='' ;; esac" ':'
+  g37_neg "37n17: break-it - dropping the TF_IDENT length limit fails 37i" t_long "$G37_TB" \
+    '[ "${#TF_IDENT}" -le 64 ] || TF_IDENT=""' ':'
+  g37_neg "37n18: break-it - dropping the TF_ID length limit fails 37i" t_idlong "$G37_TB" \
+    '[ "${#TF_ID}" -le 20 ] || TF_ID=""' ':'
+
+  # --- 37p: the prose and the changelog ---
+  assert_eq "37p: the exact-shape rule is stated once in Step 8 and once in the skill, and the changelog carries this entry once under [Unreleased]" "1 1 1" \
+    "$(g27_count "$G37_P_WF" "$G37_S8") $(g27_count "$G37_P_WF" "$(cat "$G37_WF")") $(awk '/^## \[Unreleased\]/{f=1;next} f&&/^## \[1\.43\.1\]/{exit} f' "$G37_CL" | grep -c '^### Fixed — .*(D409)$')"
+  assert_eq "37p2: no cleanup line keeps a trailing wildcard after a stem" "0" \
+    "$(printf '%s\n' "$G37_CB" | grep -c -e '-r"\[0-9\]\*' -e '-"\*\.json')"
+  rm -rf "$G37_D"
+  assert_eq "37z: the break-it cases left the real files untouched" "$G37_SUM_BEFORE" \
+    "$(cksum < "$G37_WF") $(cksum < "$G37_CT") $(cksum < "$G37_CL")"
+else
+  echo "  SKIP: Test Group 37 (a skill, the changelog or jq is missing)"
 fi
 
 echo ""

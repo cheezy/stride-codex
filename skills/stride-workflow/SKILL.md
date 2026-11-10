@@ -1656,13 +1656,15 @@ Call `PATCH /api/tasks/:id/complete` with ALL required fields:
 |---|---|---|
 | `review_report` | string | Include when task-reviewer ran; omit when skipped |
 
-**Artifact cleanup, once the completion has succeeded.** The claim hook's task file (`.stride/.task-<IDENTIFIER>.json`, see Step 2) has to go, and so do Step 6's review-round counter and fix-path baseline (`.stride/.review-rounds-<IDENTIFIER>.json`, `.stride/.review-fixbase-<IDENTIFIER>.txt`) and the deep security review's result files (`.stride/.security-<IDENTIFIER>-r<N>.json`, one per review round, with anything else left under that `-r<N>` prefix) and Step 6.5's session reports (`.stride/.exploratory-<IDENTIFIER>-r<N>.json`, one per explorer dispatch) and this step's outcomes file (`.stride/.outcomes-<IDENTIFIER>.json`), and Step 6.5's goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-*.json`), and the claim hook's attachments download (`.stride/attachments/<IDENTIFIER>/`, the whole directory, by both names). The hook deletes the task file when it records the completion. It never removes the attachments directory at completion, so this block is the only thing that does: only after a 2xx response, and never through a symlink. It is never removed at claim time either — the hook has just written it, and on a re-claim the hook alone replaces it. After a failed or rejected completion the directory stays, because the retry may still need it, and `.stride/attachments/.gitignore` is never removed. This block covers a completion the hook did not record: a truncated, absent or unparsable response, or a hook that was not running when the completion went through. Run it only after a 2xx response: a 422 leaves the task claimed, and the retry still reads that file. **Write this task's identifier and numeric id into the first two lines** from the claim response, inside the single quotes. Write a value only when it is already a plain token: 1 to 64 letters, digits, `_` or `-` for the identifier, 1 to 20 digits for the id. Otherwise leave the quotes empty, so nothing from the response is ever parsed by the shell. Step 2's `TASK_IDENTIFIER` and `TASK_ID` do not survive Codex's separate shell turns, so a block that read them would delete nothing and say nothing. The file is named by the identifier when that is a plain token and by the numeric id otherwise, so both names are removed, each allow-listed before it reaches a path. The root is found the way the hook finds it, except that the event's `.cwd` the hook falls back on is not visible from a shell, so the block walks up to the first directory holding `.stride.md` instead, and skips aloud when there is none.
+**Artifact cleanup, once the completion has succeeded.** The claim hook's task file (`.stride/.task-<IDENTIFIER>.json`, see Step 2) has to go, and so do Step 6's review-round counter and fix-path baseline (`.stride/.review-rounds-<IDENTIFIER>.json`, `.stride/.review-fixbase-<IDENTIFIER>.txt`) and the deep security review's result files (`.stride/.security-<IDENTIFIER>-r<N>.json`, one per review round, with anything else left under that `-r<N>.` prefix) and Step 6.5's session reports (`.stride/.exploratory-<IDENTIFIER>-r<N>.json`, one per explorer dispatch) and this step's outcomes file (`.stride/.outcomes-<IDENTIFIER>.json`), and Step 6.5's goal-scope tree and sibling files (`.stride/.goal-scope-<IDENTIFIER>-tree.json` and `.stride/.goal-scope-<IDENTIFIER>-<id>.json`), and the claim hook's attachments download (`.stride/attachments/<IDENTIFIER>/`, the whole directory, by both names). **Each of those names is matched by its exact shape, never by a trailing wildcard:** a round number is digits only and must be followed by a dot, and a goal-scope file ends in `-tree.json` or a digits-only sibling id before `.json`. An identifier holds no dot, so a file another task wrote under an identifier that starts with this one's — `<IDENTIFIER>-r1` or `<IDENTIFIER>-b` — never fits those shapes, and a parallel task's reports in a shared checkout are left in place. The hook deletes the task file when it records the completion. It never removes the attachments directory at completion, so this block is the only thing that does: only after a 2xx response, and never through a symlink. It is never removed at claim time either — the hook has just written it, and on a re-claim the hook alone replaces it. After a failed or rejected completion the directory stays, because the retry may still need it, and `.stride/attachments/.gitignore` is never removed. This block covers a completion the hook did not record: a truncated, absent or unparsable response, or a hook that was not running when the completion went through. Run it only after a 2xx response: a 422 leaves the task claimed, and the retry still reads that file. **Write this task's identifier and numeric id into the first two lines** from the claim response, inside the single quotes. Write a value only when it is already a plain token: 1 to 64 letters, digits, `_` or `-` for the identifier, 1 to 20 digits for the id. Otherwise leave the quotes empty, so nothing from the response is ever parsed by the shell. The block applies that same allow-list and those same 64-character and 20-digit limits itself, as the outcomes block does, and blanks any value outside them. Step 2's `TASK_IDENTIFIER` and `TASK_ID` do not survive Codex's separate shell turns, so a block that read them would delete nothing and say nothing. The file is named by the identifier when that is a plain token and by the numeric id otherwise, so both names are removed, each allow-listed before it reaches a path. The root is found the way the hook finds it, except that the event's `.cwd` the hook falls back on is not visible from a shell, so the block walks up to the first directory holding `.stride.md` instead, and skips aloud when there is none.
 
 ```bash
 TF_IDENT='<identifier>'
 TF_ID='<numeric id>'
 case "$TF_IDENT" in *[!A-Za-z0-9_-]*) TF_IDENT="" ;; esac
+[ "${#TF_IDENT}" -le 64 ] || TF_IDENT=""
 case "$TF_ID" in *[!0-9]*) TF_ID="" ;; esac
+[ "${#TF_ID}" -le 20 ] || TF_ID=""
 ROOT="${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}"
 if [ -z "$ROOT" ]; then
   d=$PWD
@@ -1674,18 +1676,31 @@ fi
 if [ -z "$ROOT" ] || [ ! -d "$ROOT/.stride" ] || [ -L "$ROOT/.stride" ]; then
   echo "task file cleanup: no project .stride/ found; nothing deleted" >&2
 else
+  tf_rm_rounds() { # <prefix>: remove <prefix><N>.<rest> only, N digits only
+    for tf_f in "$1"[0-9]*.*; do
+      tf_n=${tf_f#"$1"}; tf_n=${tf_n%%.*}
+      case "$tf_n" in ''|*[!0-9]*) ;; *) rm -f "$tf_f" ;; esac
+    done
+  }
+  tf_rm_goal_scope() { # <prefix>: remove <prefix>tree.json and <prefix><id>.json only, id digits only
+    rm -f "${1}tree.json"
+    for tf_f in "$1"[0-9]*.json; do
+      tf_n=${tf_f#"$1"}; tf_n=${tf_n%.json}
+      case "$tf_n" in ''|*[!0-9]*) ;; *) rm -f "$tf_f" ;; esac
+    done
+  }
   [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.task-$TF_IDENT.json" \
     "$ROOT/.stride/.review-rounds-$TF_IDENT.json" "$ROOT/.stride/.review-fixbase-$TF_IDENT.txt"
   [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.task-$TF_ID.json" \
     "$ROOT/.stride/.review-rounds-$TF_ID.json" "$ROOT/.stride/.review-fixbase-$TF_ID.txt"
-  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.security-$TF_IDENT-r"[0-9]*
-  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.security-$TF_ID-r"[0-9]*
-  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.exploratory-$TF_IDENT-r"[0-9]*
-  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.exploratory-$TF_ID-r"[0-9]*
+  [ -n "$TF_IDENT" ] && tf_rm_rounds "$ROOT/.stride/.security-$TF_IDENT-r"
+  [ -n "$TF_ID" ] && tf_rm_rounds "$ROOT/.stride/.security-$TF_ID-r"
+  [ -n "$TF_IDENT" ] && tf_rm_rounds "$ROOT/.stride/.exploratory-$TF_IDENT-r"
+  [ -n "$TF_ID" ] && tf_rm_rounds "$ROOT/.stride/.exploratory-$TF_ID-r"
   [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.outcomes-$TF_IDENT.json"
   [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.outcomes-$TF_ID.json"
-  [ -n "$TF_IDENT" ] && rm -f "$ROOT/.stride/.goal-scope-$TF_IDENT-"*.json
-  [ -n "$TF_ID" ] && rm -f "$ROOT/.stride/.goal-scope-$TF_ID-"*.json
+  [ -n "$TF_IDENT" ] && tf_rm_goal_scope "$ROOT/.stride/.goal-scope-$TF_IDENT-"
+  [ -n "$TF_ID" ] && tf_rm_goal_scope "$ROOT/.stride/.goal-scope-$TF_ID-"
   [ -n "$TF_IDENT" ] && [ ! -L "$ROOT/.stride/attachments" ] && [ ! -L "$ROOT/.stride/attachments/$TF_IDENT" ] && rm -rf "$ROOT/.stride/attachments/$TF_IDENT"
   [ -n "$TF_ID" ] && [ ! -L "$ROOT/.stride/attachments" ] && [ ! -L "$ROOT/.stride/attachments/$TF_ID" ] && rm -rf "$ROOT/.stride/attachments/$TF_ID"
 fi

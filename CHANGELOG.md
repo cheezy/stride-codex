@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — Step 8's cleanup no longer deletes another task's `.stride/` files whose identifier starts with this one's (D409)
+
+Closes the over-match D404's exploratory pass found in Step 8's artifact cleanup (High and Moderate), and the missing sanitiser pins W2685's runner found.
+
+- **The cleanup matched more than this task's files.** It removed the deep security review's result files and Step 6.5's session reports with `-r"[0-9]*` and the goal-scope files with `-"*.json`. For stem `W47` that also matched `.security-W47-r1-r1.json`, a report of the task whose identifier is `W47-r1`, and `.goal-scope-W47-b-tree.json`, a file of task `W47-b`. In a shared checkout with parallel runners, completing one task silently deleted another task's review and exploratory records.
+- **Each file is now matched by its exact shape.** Two helpers in the block replace the six trailing-wildcard rm lines, four for the round-numbered reports and two for the goal-scope files. `tf_rm_rounds` removes `<prefix><N>.<rest>` only when `N` is digits only, so `r10` and a `.json.tmp` leftover are still removed. `tf_rm_goal_scope` removes `-tree.json` and `-<id>.json` only when the id is digits only. An identifier holds no dot, so no other stem's file fits either shape. Nothing of this task's own is removed any less. The other rm lines were exact names already and are unchanged. The block's own identifier and id sanitisers also gained the 64-character and 20-digit limits the paragraph and the outcomes block already stated, so an over-long value is blanked rather than used; this task's exploratory pass (r2, Moderate) found them missing.
+- **Documented in the cleanup paragraph.** It names the goal-scope tree and sibling files by their two shapes and says every name is matched by its exact shape, never by a trailing wildcard. Groups 23, 24, 30 and 32 pin the new lines and prose in place of the old.
+- Hook-suite **Group 37** runs the extracted cleanup on a `.stride/` holding every file shape for the stems `W47`, `W47-r1`, `W47-b`, `W47-1`, `47`, `47-r1` and `470`. 37b-37f check that this stem's own files all go, `r10` and the leftover included, and that every other stem's files stay. They also check that a numeric id spares a longer id sharing its prefix, that an empty stem removes nothing, and that a hostile identifier removes nothing. 37g and 37h run the `OC_IDENT` and `OC_ID` sanitisers from `stride-completing-tasks` and their `stride-workflow` twin. A slash, a dot-dot, a space, 65 characters, a non-digit id and a 21-digit id are blanked, and the 64-character and 20-digit twins are kept. 37i checks the cleanup block's own sanitisers the same way. 37n1-37n18 break a copy of each block. Restoring each old glob, dropping a filter or a guard, or deleting less are each caught by a named case. 37p pins the prose and this entry, and 37z checks the real files are left untouched.
+
+Not verified in a live Codex CLI run, since none was available here.
+
 ### Fixed — `exploratory_outcomes_ok` no longer exempts a report that carries a root `verify` key (D407)
 
 Closes the 1.43.1 known issue filed as D407 from D405's exploratory pass (charter r1, High, replicated 4/4).
